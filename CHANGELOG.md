@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.20.0 - 2026-03-03
+
+### New Features
+
+- Add RALPHEX_EXTRA_ENV support for passing environment variables to Docker (#179) @bronislav
+- Implement manual break command (SIGQUIT/Ctrl+\) for external review loop
+- Add review patience: terminate external review after N consecutive unchanged rounds (stalemate detection)
+
+### Improved
+
+- Fix slow tests and use t.Context() instead of context.Background()
+- Update playwright-go to v0.5700.1
+- Update go dependencies and github actions
+- Use env: mapping for head_branch in docker workflow (#174) @paskal
+
+### Fixed
+
+- Isolate TestTasksOnlyModeBranchCreation from global config (#177) @bronislav
+- Show dirty file list in uncommitted changes error (#175) @umputun
+
 ## v0.19.0 - 2026-02-28
 
 ### New Features
