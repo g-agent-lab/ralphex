@@ -931,6 +931,25 @@ It depends. If the plan file is the only uncommitted change, ralphex auto-commit
 
 Agents define *what* to check (review instructions). Prompts define *how* the workflow runs (execution steps, signal handling).
 
+**Can I run a custom step before or after all tasks complete?**
+
+Yes. Customize `prompts/task.txt` to inject extra steps at any point in the task lifecycle. A common pattern is adding a "gate step" that runs after all tasks are done but before signaling completion. For example, to run a code smells check after the last task:
+
+```txt
+STEP 3 - COMPLETE (after validation passes):
+- ...existing steps...
+- If NO more [ ] checkboxes in the entire plan, proceed to STEP 4
+
+STEP 4 - STYLE CHECK (only when all tasks are done):
+- Use /smells skill to analyze all files changed on this branch
+- Fix all reported style and code quality issues
+- Run tests and linter again to verify fixes
+- Commit fixes if any: fix: address code smell findings
+- Output exactly: <<<RALPHEX:ALL_TASKS_DONE>>>
+```
+
+This works because ralphex only checks for the `ALL_TASKS_DONE` signal — it doesn't care how many steps precede it. The same approach works for any tool or skill: security scanning, formatting, documentation generation, etc. Place it in `~/.config/ralphex/prompts/task.txt` for global use or `.ralphex/prompts/task.txt` for a specific project.
+
 **Can I use ralphex with Claude Pro plan?**
 
 Yes. Pro plans hit rate limits more frequently. Use `--wait` to pause and retry automatically instead of exiting:
