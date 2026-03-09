@@ -193,7 +193,7 @@ func TestPlanModeIntegration(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = os.Chdir(origDir) })
 
-		o := opts{PlanDescription: "add caching feature"}
+		o := opts{PlanDescription: "add caching feature", ConfigDir: t.TempDir()}
 		err = run(t.Context(), o)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no .git directory")
@@ -212,7 +212,7 @@ func TestPlanModeIntegration(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel() // cancel immediately to stop execution
 
-		o := opts{PlanDescription: "add caching feature", MaxIterations: 1}
+		o := opts{PlanDescription: "add caching feature", MaxIterations: 1, ConfigDir: t.TempDir()}
 		err = run(ctx, o)
 
 		// should fail with context canceled, not validation errors
@@ -246,7 +246,7 @@ func TestPlanModeIntegration(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		o := opts{PlanDescription: "test plan description", MaxIterations: 1}
+		o := opts{PlanDescription: "test plan description", MaxIterations: 1, ConfigDir: t.TempDir()}
 		err = run(ctx, o)
 
 		// error should be from plan creation (context canceled), not from config or validation
@@ -276,7 +276,7 @@ func TestAutoPlanModeDetection(t *testing.T) {
 		require.NoError(t, gitSvc.CreateBranch("feature-test"))
 
 		// run without arguments - should error because we're on feature branch
-		o := opts{MaxIterations: 1}
+		o := opts{MaxIterations: 1, ConfigDir: t.TempDir()}
 		err = run(t.Context(), o)
 		require.Error(t, err)
 		// should still get the no plans found error, not auto-plan-mode
@@ -302,7 +302,7 @@ func TestAutoPlanModeDetection(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel() // cancel immediately to avoid actual execution
 
-		o := opts{Review: true, MaxIterations: 1}
+		o := opts{Review: true, MaxIterations: 1, ConfigDir: t.TempDir()}
 		err = run(ctx, o)
 		// error should be from context cancellation or runner, not "no plans found"
 		// this verifies auto-plan-mode is skipped for --review flag
@@ -329,7 +329,7 @@ func TestAutoPlanModeDetection(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel() // cancel immediately to avoid actual execution
 
-		o := opts{CodexOnly: true, MaxIterations: 1}
+		o := opts{CodexOnly: true, MaxIterations: 1, ConfigDir: t.TempDir()}
 		err = run(ctx, o)
 		// error should be from context cancellation or runner, not "no plans found"
 		// this verifies auto-plan-mode is skipped for --codex-only flag
@@ -356,7 +356,7 @@ func TestAutoPlanModeDetection(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel() // cancel immediately to avoid actual execution
 
-		o := opts{ExternalOnly: true, MaxIterations: 1}
+		o := opts{ExternalOnly: true, MaxIterations: 1, ConfigDir: t.TempDir()}
 		err = run(ctx, o)
 		// error should be from context cancellation or runner, not "no plans found"
 		// this verifies auto-plan-mode is skipped for --external-only flag
@@ -1376,7 +1376,7 @@ func TestWorktreeMode_SkippedForNonBranchModes(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		o := opts{Worktree: true, Review: true, PlanFile: planPath, MaxIterations: 1, NoColor: true}
+		o := opts{Worktree: true, Review: true, PlanFile: planPath, MaxIterations: 1, NoColor: true, ConfigDir: t.TempDir()}
 		_ = run(ctx, o)
 
 		// no worktree directory should exist
