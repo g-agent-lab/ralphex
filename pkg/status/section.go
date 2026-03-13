@@ -31,6 +31,22 @@ const (
 	SectionPlanIteration
 	// SectionCustomIteration represents a custom review tool iteration.
 	SectionCustomIteration
+	// SectionDeepPlanExploration represents the exploration phase of deep plan.
+	SectionDeepPlanExploration
+	// SectionDeepPlanSectionApproval represents section list approval by user.
+	SectionDeepPlanSectionApproval
+	// SectionDeepPlanProposal represents a proposal iteration for a section.
+	SectionDeepPlanProposal
+	// SectionDeepPlanCritique represents a critique iteration for a section.
+	SectionDeepPlanCritique
+	// SectionDeepPlanRevision represents a revision iteration for a section.
+	SectionDeepPlanRevision
+	// SectionDeepPlanConflict represents a conflict requiring user arbitration.
+	SectionDeepPlanConflict
+	// SectionDeepPlanAssembly represents the assembly of all agreed sections.
+	SectionDeepPlanAssembly
+	// SectionDeepPlanLint represents the full-plan lint pass by reviewer.
+	SectionDeepPlanLint
 )
 
 // Section carries structured information about a section header.
@@ -104,5 +120,73 @@ func NewCustomIterationSection(iteration int) Section {
 		Type:      SectionCustomIteration,
 		Iteration: iteration,
 		Label:     fmt.Sprintf("custom review iteration %d", iteration),
+	}
+}
+
+// NewDeepPlanExplorationSection creates a section for deep plan exploration.
+func NewDeepPlanExplorationSection() Section {
+	return Section{
+		Type:  SectionDeepPlanExploration,
+		Label: "deep plan: exploration",
+	}
+}
+
+// NewDeepPlanSectionApprovalSection creates a section for section list approval.
+func NewDeepPlanSectionApprovalSection() Section {
+	return Section{
+		Type:  SectionDeepPlanSectionApproval,
+		Label: "deep plan: section approval",
+	}
+}
+
+// NewDeepPlanProposalSection creates a section for a proposal iteration.
+func NewDeepPlanProposalSection(sectionName string, iteration int) Section {
+	return Section{
+		Type:      SectionDeepPlanProposal,
+		Iteration: iteration,
+		Label:     fmt.Sprintf("deep plan: %s proposal %d", sectionName, iteration),
+	}
+}
+
+// NewDeepPlanCritiqueSection creates a section for a critique iteration.
+func NewDeepPlanCritiqueSection(sectionName string, iteration int) Section {
+	return Section{
+		Type:      SectionDeepPlanCritique,
+		Iteration: iteration,
+		Label:     fmt.Sprintf("deep plan: %s critique %d", sectionName, iteration),
+	}
+}
+
+// NewDeepPlanRevisionSection creates a section for a revision iteration.
+func NewDeepPlanRevisionSection(sectionName string, iteration int) Section {
+	return Section{
+		Type:      SectionDeepPlanRevision,
+		Iteration: iteration,
+		Label:     fmt.Sprintf("deep plan: %s revision %d", sectionName, iteration),
+	}
+}
+
+// NewDeepPlanConflictSection creates a section for a conflict requiring arbitration.
+func NewDeepPlanConflictSection(sectionName string) Section {
+	return Section{
+		Type:  SectionDeepPlanConflict,
+		Label: fmt.Sprintf("deep plan: %s conflict", sectionName),
+	}
+}
+
+// NewDeepPlanAssemblySection creates a section for plan assembly.
+func NewDeepPlanAssemblySection() Section {
+	return Section{
+		Type:  SectionDeepPlanAssembly,
+		Label: "deep plan: assembly",
+	}
+}
+
+// NewDeepPlanLintSection creates a section for full-plan lint.
+func NewDeepPlanLintSection(iteration int) Section {
+	return Section{
+		Type:      SectionDeepPlanLint,
+		Iteration: iteration,
+		Label:     fmt.Sprintf("deep plan: lint %d", iteration),
 	}
 }

@@ -1,0 +1,44 @@
+# deep plan lint prompt
+# this prompt is used for the reviewer (Codex) to lint the fully assembled plan
+#
+# available variables:
+#   {{PLAN_DESCRIPTION}} - user's original request
+#   {{PROGRESS_FILE}} - path to progress file with Q&A history
+#   {{DEFAULT_BRANCH}} - default branch name
+#   {{PLANS_DIR}} - plans directory
+#   {{ASSEMBLED_PLAN}} - the full assembled plan content
+
+You are performing a final lint review of the complete assembled plan for: {{PLAN_DESCRIPTION}}
+
+## Full Plan
+
+{{ASSEMBLED_PLAN}}
+
+## Lint Review Criteria
+
+Review the COMPLETE plan holistically for:
+
+1. CROSS-SECTION CONSISTENCY — Do sections reference each other correctly? Are there contradictions between architecture decisions and implementation tasks?
+2. COMPLETENESS — Are all requirements from the description addressed? Are there gaps between sections?
+3. ORDERING — Are implementation tasks in a logical order? Are dependencies respected?
+4. FEASIBILITY — Can the plan actually be executed as written? Are there implicit assumptions?
+5. TESTING COVERAGE — Does the testing strategy cover the key risks identified in the architecture section?
+
+## Output
+
+Output EXACTLY one JSON object (no extra text before or after):
+
+{"schema_version": 1, "issues": [{"message": "Description of the cross-section issue", "affected_sections": ["architecture", "tasks"], "severity": "critical|major|minor"}], "verdict": "pass|needs_revision"}
+
+Verdict guidelines:
+- "pass" — the plan is ready for user final review
+- "needs_revision" — has issues that should be fixed before presenting to the user
+
+CRITICAL RULES:
+- Output ONLY the JSON object
+- "affected_sections" must list the section names that need changes to fix the issue
+- Focus on CROSS-SECTION issues — individual section quality was already reviewed
+- An empty issues array with "pass" verdict is perfectly valid if the plan is well-assembled
+- Do not re-litigate decisions that were already resolved during section review
+
+OUTPUT FORMAT: Single JSON object, no markdown formatting.

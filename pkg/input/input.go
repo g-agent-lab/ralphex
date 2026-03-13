@@ -15,6 +15,8 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/pmezard/go-difflib/difflib"
+
+	"github.com/umputun/ralphex/pkg/status"
 )
 
 // errInvalidInput is a sentinel error for validation failures in selectWithNumbers (bad number, out of range).
@@ -451,4 +453,109 @@ func (c *TerminalCollector) renderMarkdown(content string) (string, error) {
 		return "", fmt.Errorf("render markdown: %w", err)
 	}
 	return result, nil
+}
+
+// AskConflictResolution presents an adversarial conflict for user arbitration.
+// shows the topic, both arguments (proposer and reviewer), and numbered options.
+func (c *TerminalCollector) AskConflictResolution(ctx context.Context, topic, proposerArg, reviewerArg string, options []string) (string, error) {
+	if len(options) == 0 {
+		return "", errors.New("no options provided")
+	}
+
+	stdout := c.getStdout()
+
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout, "━━━ Conflict: "+topic+" ━━━")
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout, "PROPOSER argues:")
+	_, _ = fmt.Fprintln(stdout, "  "+proposerArg)
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout, "REVIEWER argues:")
+	_, _ = fmt.Fprintln(stdout, "  "+reviewerArg)
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout, "━━━━━━━━━━━━━━━━━━")
+
+	return c.selectWithNumbers(ctx, "Choose resolution", options, nil)
+}
+
+// AskSectionApproval presents the proposed section list for user approval.
+// mandatory sections are shown as locked; optional sections can be toggled.
+// user selects "done" to confirm, or toggles individual optional sections.
+func (c *TerminalCollector) AskSectionApproval(ctx context.Context, sections []status.DeepPlanSectionChoice) ([]status.DeepPlanSectionChoice, error) {
+	if len(sections) == 0 {
+		return nil, errors.New("no sections provided")
+	}
+
+	stdout := c.getStdout()
+	reader := bufio.NewReader(c.getStdin())
+
+	// make a working copy
+	result := make([]status.DeepPlanSectionChoice, len(sections))
+	copy(result, sections)
+
+	for {
+		_, _ = fmt.Fprintln(stdout)
+		_, _ = fmt.Fprintln(stdout, "Plan sections:")
+		_, _ = fmt.Fprintln(stdout)
+
+		optionalIdx := 0 // 1-based numbering for toggleable options
+		optionalMap := map[int]int{}
+		for i, s := range result {
+			marker := "[ ]"
+			if s.Enabled {
+				marker = "[x]"
+			}
+			if s.Required {
+				_, _ = fmt.Fprintf(stdout, "  %s %s (required)\n", marker, s.DisplayName)
+			} else {
+				optionalIdx++
+				optionalMap[optionalIdx] = i
+				_, _ = fmt.Fprintf(stdout, "  %s %d) %s\n", marker, optionalIdx, s.DisplayName)
+			}
+		}
+
+		_, _ = fmt.Fprintln(stdout)
+		if optionalIdx > 0 {
+			_, _ = fmt.Fprintf(stdout, "Enter number to toggle (1-%d), or 'done' to confirm: ", optionalIdx)
+		} else {
+			_, _ = fmt.Fprint(stdout, "Press Enter or type 'done' to confirm: ")
+		}
+
+		line, err := ReadLineWithContext(ctx, reader)
+		if err != nil {
+			return nil, fmt.Errorf("read input: %w", err)
+		}
+
+		input := strings.TrimSpace(strings.ToLower(line))
+		if input == "done" || input == "" {
+			return result, nil
+		}
+
+		num, parseErr := strconv.Atoi(input)
+		if parseErr != nil || num < 1 || num > optionalIdx {
+			_, _ = fmt.Fprintf(stdout, "invalid input: %s\n", strings.TrimSpace(line))
+			continue
+		}
+
+		idx := optionalMap[num]
+		result[idx].Enabled = !result[idx].Enabled
+	}
+}
+
+// AskDeepPlanResume asks whether to resume a previous deep plan session or start over.
+func (c *TerminalCollector) AskDeepPlanResume(ctx context.Context, stateInfo string) (bool, error) {
+	stdout := c.getStdout()
+
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout, "Found previous deep plan session:")
+	_, _ = fmt.Fprintln(stdout, "  "+stateInfo)
+	_, _ = fmt.Fprintln(stdout)
+
+	options := []string{"Resume", "Start over"}
+	selected, err := c.selectWithNumbers(ctx, "What would you like to do?", options, nil)
+	if err != nil {
+		return false, err
+	}
+
+	return strings.ToLower(selected) == "resume", nil
 }

@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/umputun/ralphex/pkg/status"
 )
 
 func TestTerminalCollector_selectWithNumbers(t *testing.T) {
@@ -832,5 +834,236 @@ func TestTerminalCollector_renderMarkdown(t *testing.T) {
 		assert.Contains(t, result, "item 1")
 		assert.Contains(t, result, "item 2")
 		assert.Contains(t, result, "item 3")
+	})
+}
+
+func TestTerminalCollector_AskConflictResolution(t *testing.T) {
+	t.Run("select first option", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("1\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		result, err := c.AskConflictResolution(context.Background(),
+			"Caching strategy",
+			"Redis is better for distributed systems",
+			"In-memory is simpler and sufficient",
+			[]string{"Use Redis", "Use in-memory", "Hybrid approach"},
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Use Redis", result)
+		assert.Contains(t, stdout.String(), "Conflict: Caching strategy")
+		assert.Contains(t, stdout.String(), "PROPOSER argues:")
+		assert.Contains(t, stdout.String(), "REVIEWER argues:")
+	})
+
+	t.Run("select last option", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("3\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		result, err := c.AskConflictResolution(context.Background(),
+			"DB choice", "Postgres", "SQLite",
+			[]string{"A", "B", "C"},
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, "C", result)
+	})
+
+	t.Run("no options error", func(t *testing.T) {
+		c := &TerminalCollector{noColor: true, noFzf: true}
+
+		_, err := c.AskConflictResolution(context.Background(),
+			"topic", "arg1", "arg2", nil,
+		)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no options provided")
+	})
+
+	t.Run("context cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		c := &TerminalCollector{
+			stdin:   strings.NewReader(""), // will block, then ctx fires
+			stdout:  &bytes.Buffer{},
+			noColor: true,
+			noFzf:   true,
+		}
+
+		_, err := c.AskConflictResolution(ctx,
+			"topic", "arg1", "arg2", []string{"A", "B"},
+		)
+
+		require.Error(t, err)
+	})
+}
+
+func TestTerminalCollector_AskSectionApproval(t *testing.T) {
+	t.Run("accept defaults immediately", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("done\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		sections := []status.DeepPlanSectionChoice{
+			{Name: "architecture", DisplayName: "Architecture", Required: true, Enabled: true},
+			{Name: "tasks", DisplayName: "Tasks", Required: true, Enabled: true},
+			{Name: "data_models", DisplayName: "Data Models", Required: false, Enabled: true},
+		}
+
+		result, err := c.AskSectionApproval(context.Background(), sections)
+		require.NoError(t, err)
+		assert.Len(t, result, 3)
+		assert.True(t, result[0].Enabled)
+		assert.True(t, result[1].Enabled)
+		assert.True(t, result[2].Enabled)
+		assert.Contains(t, stdout.String(), "(required)")
+	})
+
+	t.Run("toggle optional section then done", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("1\ndone\n"), // toggle first optional, then confirm
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		sections := []status.DeepPlanSectionChoice{
+			{Name: "architecture", DisplayName: "Architecture", Required: true, Enabled: true},
+			{Name: "data_models", DisplayName: "Data Models", Required: false, Enabled: true},
+			{Name: "api_design", DisplayName: "API Design", Required: false, Enabled: false},
+		}
+
+		result, err := c.AskSectionApproval(context.Background(), sections)
+		require.NoError(t, err)
+		assert.True(t, result[0].Enabled, "required section stays enabled")
+		assert.False(t, result[1].Enabled, "toggled off")
+		assert.False(t, result[2].Enabled, "was already off")
+	})
+
+	t.Run("empty enter confirms", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		sections := []status.DeepPlanSectionChoice{
+			{Name: "architecture", DisplayName: "Architecture", Required: true, Enabled: true},
+		}
+
+		result, err := c.AskSectionApproval(context.Background(), sections)
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("toggle twice restores original", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("1\n1\ndone\n"), // toggle on, toggle off, confirm
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		sections := []status.DeepPlanSectionChoice{
+			{Name: "architecture", DisplayName: "Architecture", Required: true, Enabled: true},
+			{Name: "data_models", DisplayName: "Data Models", Required: false, Enabled: false},
+		}
+
+		result, err := c.AskSectionApproval(context.Background(), sections)
+		require.NoError(t, err)
+		assert.False(t, result[1].Enabled, "toggled on then off = original false")
+	})
+
+	t.Run("invalid input then done", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("abc\ndone\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		sections := []status.DeepPlanSectionChoice{
+			{Name: "architecture", DisplayName: "Architecture", Required: true, Enabled: true},
+			{Name: "data_models", DisplayName: "Data Models", Required: false, Enabled: true},
+		}
+
+		result, err := c.AskSectionApproval(context.Background(), sections)
+		require.NoError(t, err)
+		assert.True(t, result[1].Enabled) // unchanged
+		assert.Contains(t, stdout.String(), "invalid input")
+	})
+
+	t.Run("no sections error", func(t *testing.T) {
+		c := &TerminalCollector{noColor: true, noFzf: true}
+
+		_, err := c.AskSectionApproval(context.Background(), nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no sections provided")
+	})
+}
+
+func TestTerminalCollector_AskDeepPlanResume(t *testing.T) {
+	t.Run("resume selected", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("1\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		resume, err := c.AskDeepPlanResume(context.Background(), "2 of 5 sections completed")
+		require.NoError(t, err)
+		assert.True(t, resume)
+		assert.Contains(t, stdout.String(), "2 of 5 sections completed")
+	})
+
+	t.Run("start over selected", func(t *testing.T) {
+		var stdout bytes.Buffer
+		c := &TerminalCollector{
+			stdin:   strings.NewReader("2\n"),
+			stdout:  &stdout,
+			noColor: true,
+			noFzf:   true,
+		}
+
+		resume, err := c.AskDeepPlanResume(context.Background(), "1 of 3 sections completed")
+		require.NoError(t, err)
+		assert.False(t, resume)
+	})
+
+	t.Run("context cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		c := &TerminalCollector{
+			stdin:   strings.NewReader(""),
+			stdout:  &bytes.Buffer{},
+			noColor: true,
+			noFzf:   true,
+		}
+
+		_, err := c.AskDeepPlanResume(ctx, "info")
+		require.Error(t, err)
 	})
 }

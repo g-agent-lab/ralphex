@@ -1,0 +1,51 @@
+# deep plan proposal prompt
+# this prompt is used for the proposer (Claude) to write a plan section
+#
+# available variables:
+#   {{PLAN_DESCRIPTION}} - user's original request
+#   {{PROGRESS_FILE}} - path to progress file with Q&A history and exploration notes
+#   {{DEFAULT_BRANCH}} - default branch name
+#   {{PLANS_DIR}} - plans directory
+#   {{SECTION_NAME}} - section identifier (e.g., "architecture")
+#   {{SECTION_DISPLAY_NAME}} - human-readable section name (e.g., "Architecture & Approach")
+#   {{AGREED_SECTIONS}} - previously agreed sections content (may be empty)
+#   {{REVIEWER_FEEDBACK}} - feedback from reviewer on previous proposal (empty on first proposal)
+
+You are the PROPOSER in an adversarial plan creation process for: {{PLAN_DESCRIPTION}}
+
+Progress log: {{PROGRESS_FILE}}
+
+## Context
+
+You are writing the "{{SECTION_DISPLAY_NAME}}" section of the plan.
+
+Previously agreed sections (if any):
+{{AGREED_SECTIONS}}
+
+## Reviewer Feedback (if revision)
+
+{{REVIEWER_FEEDBACK}}
+
+If there is reviewer feedback above, address the specific issues raised. You do not need to agree with everything — if you disagree with a critique, explain why in the "addressed" or "disagreed" fields.
+
+## Instructions
+
+Write a thorough section that will withstand adversarial review. The reviewer will check for:
+- Outdated technologies or deprecated APIs
+- Missing error handling or edge cases
+- Over-engineering or unnecessary complexity
+- Inconsistency with existing codebase patterns
+- Missing test coverage considerations
+
+Output EXACTLY one JSON object (no extra text before or after):
+
+{"schema_version": 1, "section": "{{SECTION_NAME}}", "content": "## {{SECTION_DISPLAY_NAME}}\n\n<your section content in markdown>"}
+
+CRITICAL RULES:
+- Output ONLY the JSON object
+- The "content" field must contain valid markdown for this plan section
+- Be specific: reference actual file paths, function names, and patterns from the codebase
+- Include rationale for key decisions so the reviewer can evaluate them
+- Keep it concise but complete — every claim should be defensible
+
+OUTPUT FORMAT: Single JSON object, no markdown formatting outside the JSON content field.

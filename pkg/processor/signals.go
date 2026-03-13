@@ -13,13 +13,14 @@ import (
 // signal constants are aliases to the shared status package for convenience within processor.
 // all signal values are defined in pkg/status to avoid circular dependencies.
 const (
-	SignalCompleted  = status.Completed
-	SignalFailed     = status.Failed
-	SignalReviewDone = status.ReviewDone
-	SignalCodexDone  = status.CodexDone
-	SignalQuestion   = status.Question
-	SignalPlanReady  = status.PlanReady
-	SignalPlanDraft  = status.PlanDraft
+	SignalCompleted        = status.Completed
+	SignalFailed           = status.Failed
+	SignalReviewDone       = status.ReviewDone
+	SignalCodexDone        = status.CodexDone
+	SignalQuestion         = status.Question
+	SignalPlanReady        = status.PlanReady
+	SignalPlanDraft        = status.PlanDraft
+	SignalDeepPlanConflict = status.DeepPlanConflict
 )
 
 // questionSignalRe matches the QUESTION signal block with JSON payload
@@ -27,6 +28,9 @@ var questionSignalRe = regexp.MustCompile(`<<<RALPHEX:QUESTION>>>\s*([\s\S]*?)\s
 
 // planDraftSignalRe matches the PLAN_DRAFT signal block with plan content
 var planDraftSignalRe = regexp.MustCompile(`<<<RALPHEX:PLAN_DRAFT>>>\s*([\s\S]*?)\s*<<<RALPHEX:END>>>`)
+
+// deepPlanConflictSignalRe matches the DEEP_PLAN_CONFLICT signal block with JSON payload
+var deepPlanConflictSignalRe = regexp.MustCompile(`<<<RALPHEX:DEEP_PLAN_CONFLICT>>>\s*([\s\S]*?)\s*<<<RALPHEX:END>>>`)
 
 // QuestionPayload represents a question signal from Claude during plan creation
 type QuestionPayload struct {
@@ -55,6 +59,9 @@ var ErrNoQuestionSignal = errors.New("no question signal found")
 
 // ErrNoPlanDraftSignal indicates no plan draft signal was found in output
 var ErrNoPlanDraftSignal = errors.New("no plan draft signal found")
+
+// ErrNoDeepPlanConflictSignal indicates no deep plan conflict signal was found in output
+var ErrNoDeepPlanConflictSignal = errors.New("no deep plan conflict signal found")
 
 // ParseQuestionPayload extracts a QuestionPayload from output containing QUESTION signal.
 // returns ErrNoQuestionSignal if no question signal is found.
@@ -87,6 +94,50 @@ func ParseQuestionPayload(output string) (*QuestionPayload, error) {
 	}
 	if len(payload.Options) == 0 {
 		return nil, errors.New("malformed question signal: missing or empty options field")
+	}
+
+	return &payload, nil
+}
+
+// DeepPlanConflictPayload represents a conflict between proposer and reviewer during deep plan creation.
+type DeepPlanConflictPayload struct {
+	Section          string   `json:"section"`
+	Topic            string   `json:"topic"`
+	ProposerArgument string   `json:"proposer_argument"`
+	ReviewerArgument string   `json:"reviewer_argument"`
+	Options          []string `json:"options"`
+}
+
+// ParseDeepPlanConflictPayload extracts a DeepPlanConflictPayload from output containing DEEP_PLAN_CONFLICT signal.
+// returns ErrNoDeepPlanConflictSignal if no conflict signal is found.
+func ParseDeepPlanConflictPayload(output string) (*DeepPlanConflictPayload, error) {
+	if !strings.Contains(output, SignalDeepPlanConflict) {
+		return nil, ErrNoDeepPlanConflictSignal
+	}
+
+	matches := deepPlanConflictSignalRe.FindStringSubmatch(output)
+	if len(matches) < 2 {
+		return nil, errors.New("malformed deep plan conflict signal: missing END marker or empty payload")
+	}
+
+	jsonStr := strings.TrimSpace(matches[1])
+	if jsonStr == "" {
+		return nil, errors.New("malformed deep plan conflict signal: empty JSON payload")
+	}
+
+	var payload DeepPlanConflictPayload
+	if err := json.Unmarshal([]byte(jsonStr), &payload); err != nil {
+		return nil, fmt.Errorf("malformed deep plan conflict signal: invalid JSON: %w", err)
+	}
+
+	if payload.Section == "" {
+		return nil, errors.New("malformed deep plan conflict signal: missing section field")
+	}
+	if payload.Topic == "" {
+		return nil, errors.New("malformed deep plan conflict signal: missing topic field")
+	}
+	if len(payload.Options) == 0 {
+		return nil, errors.New("malformed deep plan conflict signal: missing or empty options field")
 	}
 
 	return &payload, nil

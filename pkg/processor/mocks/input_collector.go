@@ -6,6 +6,8 @@ package mocks
 import (
 	"context"
 	"sync"
+
+	"github.com/umputun/ralphex/pkg/status"
 )
 
 // InputCollectorMock is a mock implementation of processor.InputCollector.
@@ -20,6 +22,15 @@ import (
 //			AskQuestionFunc: func(ctx context.Context, question string, options []string) (string, error) {
 //				panic("mock out the AskQuestion method")
 //			},
+//			AskConflictResolutionFunc: func(ctx context.Context, topic string, proposerArg string, reviewerArg string, options []string) (string, error) {
+//				panic("mock out the AskConflictResolution method")
+//			},
+//			AskSectionApprovalFunc: func(ctx context.Context, sections []status.DeepPlanSectionChoice) ([]status.DeepPlanSectionChoice, error) {
+//				panic("mock out the AskSectionApproval method")
+//			},
+//			AskDeepPlanResumeFunc: func(ctx context.Context, stateInfo string) (bool, error) {
+//				panic("mock out the AskDeepPlanResume method")
+//			},
 //		}
 //
 //		// use mockedInputCollector in code that requires processor.InputCollector
@@ -33,29 +44,53 @@ type InputCollectorMock struct {
 	// AskQuestionFunc mocks the AskQuestion method.
 	AskQuestionFunc func(ctx context.Context, question string, options []string) (string, error)
 
+	// AskConflictResolutionFunc mocks the AskConflictResolution method.
+	AskConflictResolutionFunc func(ctx context.Context, topic string, proposerArg string, reviewerArg string, options []string) (string, error)
+
+	// AskSectionApprovalFunc mocks the AskSectionApproval method.
+	AskSectionApprovalFunc func(ctx context.Context, sections []status.DeepPlanSectionChoice) ([]status.DeepPlanSectionChoice, error)
+
+	// AskDeepPlanResumeFunc mocks the AskDeepPlanResume method.
+	AskDeepPlanResumeFunc func(ctx context.Context, stateInfo string) (bool, error)
+
 	// calls tracks calls to the methods.
 	calls struct {
 		// AskDraftReview holds details about calls to the AskDraftReview method.
 		AskDraftReview []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Question is the question argument value.
-			Question string
-			// PlanContent is the planContent argument value.
+			Ctx         context.Context
+			Question    string
 			PlanContent string
 		}
 		// AskQuestion holds details about calls to the AskQuestion method.
 		AskQuestion []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Question is the question argument value.
+			Ctx      context.Context
 			Question string
-			// Options is the options argument value.
-			Options []string
+			Options  []string
+		}
+		// AskConflictResolution holds details about calls to the AskConflictResolution method.
+		AskConflictResolution []struct {
+			Ctx         context.Context
+			Topic       string
+			ProposerArg string
+			ReviewerArg string
+			Options     []string
+		}
+		// AskSectionApproval holds details about calls to the AskSectionApproval method.
+		AskSectionApproval []struct {
+			Ctx      context.Context
+			Sections []status.DeepPlanSectionChoice
+		}
+		// AskDeepPlanResume holds details about calls to the AskDeepPlanResume method.
+		AskDeepPlanResume []struct {
+			Ctx       context.Context
+			StateInfo string
 		}
 	}
-	lockAskDraftReview sync.RWMutex
-	lockAskQuestion    sync.RWMutex
+	lockAskDraftReview        sync.RWMutex
+	lockAskQuestion           sync.RWMutex
+	lockAskConflictResolution sync.RWMutex
+	lockAskSectionApproval    sync.RWMutex
+	lockAskDeepPlanResume     sync.RWMutex
 }
 
 // AskDraftReview calls AskDraftReviewFunc.
@@ -79,9 +114,6 @@ func (mock *InputCollectorMock) AskDraftReview(ctx context.Context, question str
 }
 
 // AskDraftReviewCalls gets all the calls that were made to AskDraftReview.
-// Check the length with:
-//
-//	len(mockedInputCollector.AskDraftReviewCalls())
 func (mock *InputCollectorMock) AskDraftReviewCalls() []struct {
 	Ctx         context.Context
 	Question    string
@@ -119,9 +151,6 @@ func (mock *InputCollectorMock) AskQuestion(ctx context.Context, question string
 }
 
 // AskQuestionCalls gets all the calls that were made to AskQuestion.
-// Check the length with:
-//
-//	len(mockedInputCollector.AskQuestionCalls())
 func (mock *InputCollectorMock) AskQuestionCalls() []struct {
 	Ctx      context.Context
 	Question string
@@ -135,5 +164,116 @@ func (mock *InputCollectorMock) AskQuestionCalls() []struct {
 	mock.lockAskQuestion.RLock()
 	calls = mock.calls.AskQuestion
 	mock.lockAskQuestion.RUnlock()
+	return calls
+}
+
+// AskConflictResolution calls AskConflictResolutionFunc.
+func (mock *InputCollectorMock) AskConflictResolution(ctx context.Context, topic, proposerArg, reviewerArg string, options []string) (string, error) {
+	if mock.AskConflictResolutionFunc == nil {
+		panic("InputCollectorMock.AskConflictResolutionFunc: method is nil but InputCollector.AskConflictResolution was just called")
+	}
+	callInfo := struct {
+		Ctx         context.Context
+		Topic       string
+		ProposerArg string
+		ReviewerArg string
+		Options     []string
+	}{
+		Ctx:         ctx,
+		Topic:       topic,
+		ProposerArg: proposerArg,
+		ReviewerArg: reviewerArg,
+		Options:     options,
+	}
+	mock.lockAskConflictResolution.Lock()
+	mock.calls.AskConflictResolution = append(mock.calls.AskConflictResolution, callInfo)
+	mock.lockAskConflictResolution.Unlock()
+	return mock.AskConflictResolutionFunc(ctx, topic, proposerArg, reviewerArg, options)
+}
+
+// AskConflictResolutionCalls gets all the calls that were made to AskConflictResolution.
+func (mock *InputCollectorMock) AskConflictResolutionCalls() []struct {
+	Ctx         context.Context
+	Topic       string
+	ProposerArg string
+	ReviewerArg string
+	Options     []string
+} {
+	var calls []struct {
+		Ctx         context.Context
+		Topic       string
+		ProposerArg string
+		ReviewerArg string
+		Options     []string
+	}
+	mock.lockAskConflictResolution.RLock()
+	calls = mock.calls.AskConflictResolution
+	mock.lockAskConflictResolution.RUnlock()
+	return calls
+}
+
+// AskSectionApproval calls AskSectionApprovalFunc.
+func (mock *InputCollectorMock) AskSectionApproval(ctx context.Context, sections []status.DeepPlanSectionChoice) ([]status.DeepPlanSectionChoice, error) {
+	if mock.AskSectionApprovalFunc == nil {
+		panic("InputCollectorMock.AskSectionApprovalFunc: method is nil but InputCollector.AskSectionApproval was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Sections []status.DeepPlanSectionChoice
+	}{
+		Ctx:      ctx,
+		Sections: sections,
+	}
+	mock.lockAskSectionApproval.Lock()
+	mock.calls.AskSectionApproval = append(mock.calls.AskSectionApproval, callInfo)
+	mock.lockAskSectionApproval.Unlock()
+	return mock.AskSectionApprovalFunc(ctx, sections)
+}
+
+// AskSectionApprovalCalls gets all the calls that were made to AskSectionApproval.
+func (mock *InputCollectorMock) AskSectionApprovalCalls() []struct {
+	Ctx      context.Context
+	Sections []status.DeepPlanSectionChoice
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Sections []status.DeepPlanSectionChoice
+	}
+	mock.lockAskSectionApproval.RLock()
+	calls = mock.calls.AskSectionApproval
+	mock.lockAskSectionApproval.RUnlock()
+	return calls
+}
+
+// AskDeepPlanResume calls AskDeepPlanResumeFunc.
+func (mock *InputCollectorMock) AskDeepPlanResume(ctx context.Context, stateInfo string) (bool, error) {
+	if mock.AskDeepPlanResumeFunc == nil {
+		panic("InputCollectorMock.AskDeepPlanResumeFunc: method is nil but InputCollector.AskDeepPlanResume was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		StateInfo string
+	}{
+		Ctx:       ctx,
+		StateInfo: stateInfo,
+	}
+	mock.lockAskDeepPlanResume.Lock()
+	mock.calls.AskDeepPlanResume = append(mock.calls.AskDeepPlanResume, callInfo)
+	mock.lockAskDeepPlanResume.Unlock()
+	return mock.AskDeepPlanResumeFunc(ctx, stateInfo)
+}
+
+// AskDeepPlanResumeCalls gets all the calls that were made to AskDeepPlanResume.
+func (mock *InputCollectorMock) AskDeepPlanResumeCalls() []struct {
+	Ctx       context.Context
+	StateInfo string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		StateInfo string
+	}
+	mock.lockAskDeepPlanResume.RLock()
+	calls = mock.calls.AskDeepPlanResume
+	mock.lockAskDeepPlanResume.RUnlock()
 	return calls
 }

@@ -21,6 +21,14 @@ type Prompts struct {
 	Finalize     string
 	CustomReview string
 	CustomEval   string
+
+	// deep plan prompts
+	DeepPlanExplore  string
+	DeepPlanPropose  string
+	DeepPlanCritique string
+	DeepPlanResolve  string
+	DeepPlanAssembly string
+	DeepPlanLint     string
 }
 
 // promptLoader implements PromptLoader with embedded filesystem fallback.
@@ -76,6 +84,37 @@ func (p *promptLoader) Load(localDir, globalDir string) (Prompts, error) {
 	prompts.CustomEval, err = p.loadPromptWithLocalFallback(localDir, globalDir, customEvalPromptFile)
 	if err != nil {
 		return Prompts{}, fmt.Errorf("load custom_eval prompt: %w", err)
+	}
+
+	// deep plan prompts
+	prompts.DeepPlanExplore, err = p.loadPromptWithLocalFallback(localDir, globalDir, deepPlanExplorePromptFile)
+	if err != nil {
+		return Prompts{}, fmt.Errorf("load deep_plan_explore prompt: %w", err)
+	}
+
+	prompts.DeepPlanPropose, err = p.loadPromptWithLocalFallback(localDir, globalDir, deepPlanProposePromptFile)
+	if err != nil {
+		return Prompts{}, fmt.Errorf("load deep_plan_propose prompt: %w", err)
+	}
+
+	prompts.DeepPlanCritique, err = p.loadPromptWithLocalFallback(localDir, globalDir, deepPlanCritiquePromptFile)
+	if err != nil {
+		return Prompts{}, fmt.Errorf("load deep_plan_critique prompt: %w", err)
+	}
+
+	prompts.DeepPlanResolve, err = p.loadPromptWithLocalFallback(localDir, globalDir, deepPlanResolvePromptFile)
+	if err != nil {
+		return Prompts{}, fmt.Errorf("load deep_plan_resolve prompt: %w", err)
+	}
+
+	prompts.DeepPlanAssembly, err = p.loadPromptWithLocalFallback(localDir, globalDir, deepPlanAssemblyPromptFile)
+	if err != nil {
+		return Prompts{}, fmt.Errorf("load deep_plan_assembly prompt: %w", err)
+	}
+
+	prompts.DeepPlanLint, err = p.loadPromptWithLocalFallback(localDir, globalDir, deepPlanLintPromptFile)
+	if err != nil {
+		return Prompts{}, fmt.Errorf("load deep_plan_lint prompt: %w", err)
 	}
 
 	return prompts, nil

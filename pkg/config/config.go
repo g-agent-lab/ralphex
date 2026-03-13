@@ -24,6 +24,13 @@ const (
 	finalizePromptFile     = "finalize.txt"
 	customReviewPromptFile = "custom_review.txt"
 	customEvalPromptFile   = "custom_eval.txt"
+
+	deepPlanExplorePromptFile  = "deep_plan_explore.txt"
+	deepPlanProposePromptFile  = "deep_plan_propose.txt"
+	deepPlanCritiquePromptFile = "deep_plan_critique.txt"
+	deepPlanResolvePromptFile  = "deep_plan_resolve.txt"
+	deepPlanAssemblyPromptFile = "deep_plan_assembly.txt"
+	deepPlanLintPromptFile     = "deep_plan_lint.txt"
 )
 
 // Config holds all configuration settings for ralphex.
@@ -62,8 +69,10 @@ type Config struct {
 	TaskRetryCountSet     bool `json:"-"` // tracks if task_retry_count was explicitly set in config
 	MaxIterations         int  `json:"max_iterations"`
 	MaxIterationsSet      bool `json:"-"` // tracks if max_iterations was explicitly set in config
-	MaxExternalIterations int  `json:"max_external_iterations"`
-	ReviewPatience        int  `json:"review_patience"`
+	MaxExternalIterations      int `json:"max_external_iterations"`
+	ReviewPatience             int `json:"review_patience"`
+	DeepPlanMaxSectionIters    int `json:"deep_plan_max_section_iterations"`
+	DeepPlanMaxSectionItersSet bool `json:"-"` // tracks if deep_plan_max_section_iterations was explicitly set
 
 	FinalizeEnabled    bool `json:"finalize_enabled"`
 	FinalizeEnabledSet bool `json:"-"` // tracks if finalize_enabled was explicitly set in config
@@ -101,6 +110,14 @@ type Config struct {
 	FinalizePrompt     string `json:"-"`
 	CustomReviewPrompt string `json:"-"`
 	CustomEvalPrompt   string `json:"-"`
+
+	// deep plan prompts
+	DeepPlanExplorePrompt  string `json:"-"`
+	DeepPlanProposePrompt  string `json:"-"`
+	DeepPlanCritiquePrompt string `json:"-"`
+	DeepPlanResolvePrompt  string `json:"-"`
+	DeepPlanAssemblyPrompt string `json:"-"`
+	DeepPlanLintPrompt     string `json:"-"`
 
 	// custom agents (loaded separately from files)
 	CustomAgents []CustomAgent `json:"-"`
@@ -258,9 +275,11 @@ func loadConfigFromDirs(globalDir, localDir string) (*Config, error) {
 		TaskRetryCountSet:     values.TaskRetryCountSet,
 		MaxIterations:         values.MaxIterations,
 		MaxIterationsSet:      values.MaxIterationsSet,
-		MaxExternalIterations: values.MaxExternalIterations,
-		ReviewPatience:        values.ReviewPatience,
-		FinalizeEnabled:       values.FinalizeEnabled,
+		MaxExternalIterations:      values.MaxExternalIterations,
+		ReviewPatience:             values.ReviewPatience,
+		DeepPlanMaxSectionIters:    values.DeepPlanMaxSectionIters,
+		DeepPlanMaxSectionItersSet: values.DeepPlanMaxSectionItersSet,
+		FinalizeEnabled:            values.FinalizeEnabled,
 		FinalizeEnabledSet:    values.FinalizeEnabledSet,
 		WorktreeEnabled:       values.WorktreeEnabled,
 		WorktreeEnabledSet:    values.WorktreeEnabledSet,
@@ -300,9 +319,15 @@ func loadConfigFromDirs(globalDir, localDir string) (*Config, error) {
 		CodexPrompt:        prompts.Codex,
 		MakePlanPrompt:     prompts.MakePlan,
 		FinalizePrompt:     prompts.Finalize,
-		CustomReviewPrompt: prompts.CustomReview,
-		CustomEvalPrompt:   prompts.CustomEval,
-		CustomAgents:       agents,
+		CustomReviewPrompt:     prompts.CustomReview,
+		CustomEvalPrompt:       prompts.CustomEval,
+		DeepPlanExplorePrompt:  prompts.DeepPlanExplore,
+		DeepPlanProposePrompt:  prompts.DeepPlanPropose,
+		DeepPlanCritiquePrompt: prompts.DeepPlanCritique,
+		DeepPlanResolvePrompt:  prompts.DeepPlanResolve,
+		DeepPlanAssemblyPrompt: prompts.DeepPlanAssembly,
+		DeepPlanLintPrompt:     prompts.DeepPlanLint,
+		CustomAgents:           agents,
 		configDir:          globalDir,
 		localDir:           localDir,
 	}

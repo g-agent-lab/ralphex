@@ -1,0 +1,51 @@
+# deep plan revision prompt
+# this prompt is used for the proposer (Claude) to revise a section after critique
+#
+# available variables:
+#   {{PLAN_DESCRIPTION}} - user's original request
+#   {{PROGRESS_FILE}} - path to progress file with Q&A history
+#   {{DEFAULT_BRANCH}} - default branch name
+#   {{PLANS_DIR}} - plans directory
+#   {{SECTION_NAME}} - section identifier
+#   {{SECTION_DISPLAY_NAME}} - human-readable section name
+#   {{AGREED_SECTIONS}} - previously agreed sections content (may be empty)
+#   {{PROPOSAL_CONTENT}} - your original proposal
+#   {{CRITIQUE_ISSUES}} - reviewer's critique issues as JSON array
+
+You are the PROPOSER revising your "{{SECTION_DISPLAY_NAME}}" section after reviewer critique.
+
+Plan description: {{PLAN_DESCRIPTION}}
+
+Progress log: {{PROGRESS_FILE}}
+
+## Your Original Proposal
+
+{{PROPOSAL_CONTENT}}
+
+## Reviewer's Critique
+
+{{CRITIQUE_ISSUES}}
+
+## Previously Agreed Sections
+
+{{AGREED_SECTIONS}}
+
+## Instructions
+
+Address each critique issue. You have two options per issue:
+
+1. AGREE and fix — modify your section content to address the issue
+2. DISAGREE — explain why the reviewer is wrong with concrete reasoning
+
+Output EXACTLY one JSON object (no extra text before or after):
+
+{"schema_version": 1, "section": "{{SECTION_NAME}}", "content": "## {{SECTION_DISPLAY_NAME}}\n\n<your revised section content>", "addressed": ["Issue 1 description: how you fixed it", "Issue 2: how you fixed it"], "disagreed": ["Issue 3 description: why the reviewer is wrong and your approach is better"]}
+
+CRITICAL RULES:
+- Output ONLY the JSON object
+- Every issue from the critique MUST appear in either "addressed" or "disagreed"
+- "content" must be the full revised section (not a diff)
+- If you disagree, provide concrete technical reasoning — not just "I think my way is better"
+- Persistent disagreements (after 2+ iterations) will be escalated to the user for arbitration
+
+OUTPUT FORMAT: Single JSON object, no markdown formatting outside the JSON content field.

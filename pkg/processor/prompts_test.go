@@ -881,3 +881,110 @@ func TestRunner_buildCustomEvaluationPrompt(t *testing.T) {
 		assert.Equal(t, "Evaluate output: security issue found. Goal: implementation of plan at docs/plans/test.md", prompt)
 	})
 }
+
+func TestRunner_buildDeepPlanExplorePrompt(t *testing.T) {
+	appCfg := testAppConfig(t)
+	r := &Runner{cfg: Config{
+		PlanDescription: "add caching layer",
+		ProgressPath:    "progress-deep.txt",
+		AppConfig:       appCfg,
+	}, log: newMockLogger("")}
+
+	prompt := r.buildDeepPlanExplorePrompt()
+
+	assert.Contains(t, prompt, "add caching layer")
+	assert.Contains(t, prompt, "progress-deep.txt")
+	assert.NotContains(t, prompt, "{{PLAN_DESCRIPTION}}")
+	assert.NotContains(t, prompt, "{{PROGRESS_FILE}}")
+}
+
+func TestRunner_buildDeepPlanProposePrompt(t *testing.T) {
+	appCfg := testAppConfig(t)
+	r := &Runner{cfg: Config{
+		PlanDescription: "add auth",
+		ProgressPath:    "progress.txt",
+		AppConfig:       appCfg,
+	}, log: newMockLogger("")}
+
+	prompt := r.buildDeepPlanProposePrompt("architecture", "Architecture & Approach",
+		"## Testing\nUnit tests.", "Previous issues: unclear caching")
+
+	assert.Contains(t, prompt, "add auth")
+	assert.Contains(t, prompt, "architecture")
+	assert.Contains(t, prompt, "Architecture & Approach")
+	assert.Contains(t, prompt, "## Testing\nUnit tests.")
+	assert.Contains(t, prompt, "Previous issues: unclear caching")
+	assert.NotContains(t, prompt, "{{SECTION_NAME}}")
+	assert.NotContains(t, prompt, "{{AGREED_SECTIONS}}")
+	assert.NotContains(t, prompt, "{{REVIEWER_FEEDBACK}}")
+}
+
+func TestRunner_buildDeepPlanCritiquePrompt(t *testing.T) {
+	appCfg := testAppConfig(t)
+	r := &Runner{cfg: Config{
+		PlanDescription: "add auth",
+		ProgressPath:    "progress.txt",
+		AppConfig:       appCfg,
+	}, log: newMockLogger("")}
+
+	prompt := r.buildDeepPlanCritiquePrompt("tasks", "Implementation Tasks",
+		"## Arch\nMicroservices.", "## Tasks\n1. Setup\n2. Implement")
+
+	assert.Contains(t, prompt, "add auth")
+	assert.Contains(t, prompt, "tasks")
+	assert.Contains(t, prompt, "Implementation Tasks")
+	assert.Contains(t, prompt, "## Arch\nMicroservices.")
+	assert.Contains(t, prompt, "## Tasks\n1. Setup\n2. Implement")
+	assert.NotContains(t, prompt, "{{PROPOSAL_CONTENT}}")
+}
+
+func TestRunner_buildDeepPlanResolvePrompt(t *testing.T) {
+	appCfg := testAppConfig(t)
+	r := &Runner{cfg: Config{
+		PlanDescription: "add auth",
+		ProgressPath:    "progress.txt",
+		AppConfig:       appCfg,
+	}, log: newMockLogger("")}
+
+	prompt := r.buildDeepPlanResolvePrompt("architecture", "Architecture",
+		"", "original proposal", `[{"message":"use newer API"}]`)
+
+	assert.Contains(t, prompt, "add auth")
+	assert.Contains(t, prompt, "architecture")
+	assert.Contains(t, prompt, "original proposal")
+	assert.Contains(t, prompt, "use newer API")
+	assert.NotContains(t, prompt, "{{CRITIQUE_ISSUES}}")
+}
+
+func TestRunner_buildDeepPlanAssemblyPrompt(t *testing.T) {
+	appCfg := testAppConfig(t)
+	r := &Runner{cfg: Config{
+		PlanDescription: "add auth",
+		ProgressPath:    "progress.txt",
+		AppConfig:       appCfg,
+	}, log: newMockLogger("")}
+
+	prompt := r.buildDeepPlanAssemblyPrompt("## Arch\nDone.\n## Tasks\nDone.",
+		"Decision 1: Use JWT over sessions")
+
+	assert.Contains(t, prompt, "add auth")
+	assert.Contains(t, prompt, "## Arch\nDone.")
+	assert.Contains(t, prompt, "Decision 1: Use JWT over sessions")
+	assert.NotContains(t, prompt, "{{AGREED_SECTIONS}}")
+	assert.NotContains(t, prompt, "{{ARCHITECTURE_DECISIONS}}")
+}
+
+func TestRunner_buildDeepPlanLintPrompt(t *testing.T) {
+	appCfg := testAppConfig(t)
+	r := &Runner{cfg: Config{
+		PlanDescription: "add auth",
+		ProgressPath:    "progress.txt",
+		AppConfig:       appCfg,
+	}, log: newMockLogger("")}
+
+	prompt := r.buildDeepPlanLintPrompt("# Full Plan\n## Arch\n## Tasks\n## Testing")
+
+	assert.Contains(t, prompt, "add auth")
+	assert.Contains(t, prompt, "# Full Plan")
+	assert.NotContains(t, prompt, "{{ASSEMBLED_PLAN}}")
+}

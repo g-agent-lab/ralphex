@@ -1,0 +1,55 @@
+# deep plan assembly prompt
+# this prompt is used for Claude to assemble all agreed sections into a final plan
+#
+# available variables:
+#   {{PLAN_DESCRIPTION}} - user's original request
+#   {{PROGRESS_FILE}} - path to progress file with Q&A history
+#   {{DEFAULT_BRANCH}} - default branch name
+#   {{PLANS_DIR}} - plans directory
+#   {{AGREED_SECTIONS}} - all agreed section contents concatenated
+#   {{ARCHITECTURE_DECISIONS}} - summary of conflict resolutions and key decisions
+
+You are assembling the final plan for: {{PLAN_DESCRIPTION}}
+
+Progress log: {{PROGRESS_FILE}}
+
+## Agreed Sections
+
+The following sections have been reviewed and agreed upon through adversarial review:
+
+{{AGREED_SECTIONS}}
+
+## Architecture Decisions
+
+Key decisions made during the review process (including user arbitration results):
+
+{{ARCHITECTURE_DECISIONS}}
+
+## Instructions
+
+Assemble a complete, coherent plan document from the agreed sections.
+
+Your job is to:
+1. Combine all sections into a well-structured plan
+2. Add an "Architecture Decisions" section documenting key choices and their rationale
+3. Ensure cross-references between sections are consistent
+4. Add a brief Overview section summarizing the plan
+5. Ensure the Implementation Tasks section has proper task numbering and dependencies
+
+Emit the assembled plan as a draft:
+
+<<<RALPHEX:PLAN_DRAFT>>>
+# <Title>
+
+## Overview
+<Brief description>
+
+## Architecture Decisions
+<Key decisions from adversarial review>
+
+<assembled sections>
+<<<RALPHEX:END>>>
+
+CRITICAL: After emitting PLAN_DRAFT, STOP immediately. Do not write the plan file yet.
+
+OUTPUT FORMAT: No markdown formatting in your response text outside the PLAN_DRAFT block.

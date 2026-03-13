@@ -223,3 +223,63 @@ func (r *Runner) buildCustomEvaluationPrompt(customOutput string) string {
 	prompt := r.replacePromptVariables(r.cfg.AppConfig.CustomEvalPrompt)
 	return strings.ReplaceAll(prompt, "{{CUSTOM_OUTPUT}}", customOutput)
 }
+
+// deep plan prompt builders
+
+// buildDeepPlanExplorePrompt creates the prompt for codebase exploration and section determination.
+func (r *Runner) buildDeepPlanExplorePrompt() string {
+	prompt := r.cfg.AppConfig.DeepPlanExplorePrompt
+	prompt = strings.ReplaceAll(prompt, "{{PLAN_DESCRIPTION}}", r.cfg.PlanDescription)
+	return r.replaceBaseVariables(prompt)
+}
+
+// buildDeepPlanProposePrompt creates the prompt for proposing a plan section.
+func (r *Runner) buildDeepPlanProposePrompt(sectionName, displayName, agreedSections, reviewerFeedback string) string {
+	prompt := r.cfg.AppConfig.DeepPlanProposePrompt
+	prompt = strings.ReplaceAll(prompt, "{{PLAN_DESCRIPTION}}", r.cfg.PlanDescription)
+	prompt = strings.ReplaceAll(prompt, "{{SECTION_NAME}}", sectionName)
+	prompt = strings.ReplaceAll(prompt, "{{SECTION_DISPLAY_NAME}}", displayName)
+	prompt = strings.ReplaceAll(prompt, "{{AGREED_SECTIONS}}", agreedSections)
+	prompt = strings.ReplaceAll(prompt, "{{REVIEWER_FEEDBACK}}", reviewerFeedback)
+	return r.replaceBaseVariables(prompt)
+}
+
+// buildDeepPlanCritiquePrompt creates the prompt for reviewing a proposed section.
+func (r *Runner) buildDeepPlanCritiquePrompt(sectionName, displayName, agreedSections, proposalContent string) string {
+	prompt := r.cfg.AppConfig.DeepPlanCritiquePrompt
+	prompt = strings.ReplaceAll(prompt, "{{PLAN_DESCRIPTION}}", r.cfg.PlanDescription)
+	prompt = strings.ReplaceAll(prompt, "{{SECTION_NAME}}", sectionName)
+	prompt = strings.ReplaceAll(prompt, "{{SECTION_DISPLAY_NAME}}", displayName)
+	prompt = strings.ReplaceAll(prompt, "{{AGREED_SECTIONS}}", agreedSections)
+	prompt = strings.ReplaceAll(prompt, "{{PROPOSAL_CONTENT}}", proposalContent)
+	return r.replaceBaseVariables(prompt)
+}
+
+// buildDeepPlanResolvePrompt creates the prompt for revising a section after critique.
+func (r *Runner) buildDeepPlanResolvePrompt(sectionName, displayName, agreedSections, proposalContent, critiqueIssues string) string {
+	prompt := r.cfg.AppConfig.DeepPlanResolvePrompt
+	prompt = strings.ReplaceAll(prompt, "{{PLAN_DESCRIPTION}}", r.cfg.PlanDescription)
+	prompt = strings.ReplaceAll(prompt, "{{SECTION_NAME}}", sectionName)
+	prompt = strings.ReplaceAll(prompt, "{{SECTION_DISPLAY_NAME}}", displayName)
+	prompt = strings.ReplaceAll(prompt, "{{AGREED_SECTIONS}}", agreedSections)
+	prompt = strings.ReplaceAll(prompt, "{{PROPOSAL_CONTENT}}", proposalContent)
+	prompt = strings.ReplaceAll(prompt, "{{CRITIQUE_ISSUES}}", critiqueIssues)
+	return r.replaceBaseVariables(prompt)
+}
+
+// buildDeepPlanAssemblyPrompt creates the prompt for assembling all agreed sections.
+func (r *Runner) buildDeepPlanAssemblyPrompt(agreedSections, architectureDecisions string) string {
+	prompt := r.cfg.AppConfig.DeepPlanAssemblyPrompt
+	prompt = strings.ReplaceAll(prompt, "{{PLAN_DESCRIPTION}}", r.cfg.PlanDescription)
+	prompt = strings.ReplaceAll(prompt, "{{AGREED_SECTIONS}}", agreedSections)
+	prompt = strings.ReplaceAll(prompt, "{{ARCHITECTURE_DECISIONS}}", architectureDecisions)
+	return r.replaceBaseVariables(prompt)
+}
+
+// buildDeepPlanLintPrompt creates the prompt for full-plan lint review.
+func (r *Runner) buildDeepPlanLintPrompt(assembledPlan string) string {
+	prompt := r.cfg.AppConfig.DeepPlanLintPrompt
+	prompt = strings.ReplaceAll(prompt, "{{PLAN_DESCRIPTION}}", r.cfg.PlanDescription)
+	prompt = strings.ReplaceAll(prompt, "{{ASSEMBLED_PLAN}}", assembledPlan)
+	return r.replaceBaseVariables(prompt)
+}
