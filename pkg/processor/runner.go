@@ -85,6 +85,22 @@ type Logger interface {
 type InputCollector interface {
 	AskQuestion(ctx context.Context, question string, options []string) (string, error)
 	AskDraftReview(ctx context.Context, question string, planContent string) (action string, feedback string, err error)
+
+	// deep plan methods
+
+	// AskConflictResolution presents an adversarial conflict between proposer and reviewer for user arbitration.
+	// returns the selected option text or error.
+	AskConflictResolution(ctx context.Context, topic, proposerArg, reviewerArg string, options []string) (string, error)
+
+	// AskSectionApproval presents the proposed section list for user approval.
+	// mandatory sections are locked (shown but not toggleable); optional sections can be enabled/disabled.
+	// returns the updated section list with Enabled reflecting user choices.
+	AskSectionApproval(ctx context.Context, sections []status.DeepPlanSectionChoice) ([]status.DeepPlanSectionChoice, error)
+
+	// AskDeepPlanResume asks whether to resume a previous deep plan session or start over.
+	// stateInfo describes the existing state (e.g., "2 of 5 sections completed").
+	// returns true for resume, false for start over.
+	AskDeepPlanResume(ctx context.Context, stateInfo string) (resume bool, err error)
 }
 
 // GitChecker provides git state inspection for the review loop.
@@ -237,6 +253,8 @@ func (r *Runner) Run(ctx context.Context) error {
 		return r.runTasksOnly(ctx)
 	case ModePlan:
 		return r.runPlanCreation(ctx)
+	case ModeDeepPlan:
+		return r.runDeepPlanCreation(ctx)
 	default:
 		return fmt.Errorf("unknown mode: %s", r.cfg.Mode)
 	}

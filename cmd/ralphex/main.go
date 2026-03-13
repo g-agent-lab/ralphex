@@ -42,6 +42,7 @@ type opts struct {
 	SkipFinalize          bool          `long:"skip-finalize" description:"skip finalize step even if enabled in config"`
 	Worktree              bool          `long:"worktree" description:"run in isolated git worktree"`
 	PlanDescription       string        `long:"plan" description:"create plan interactively (enter plan description)"`
+	DeepPlanDescription   string        `long:"deep-plan" description:"create plan with adversarial review (proposer + reviewer debate each section)"`
 	Debug                 bool          `short:"d" long:"debug" description:"enable debug logging"`
 	NoColor               bool          `long:"no-color" description:"disable color output"`
 	Version               bool          `short:"v" long:"version" description:"print version and exit"`
@@ -271,6 +272,28 @@ func run(ctx context.Context, o opts) error {
 			NotifySvc:     notifySvc,
 			WtCleanup:     wtCleanup,
 		}, selector)
+	}
+
+	// deep plan mode: adversarial planning with proposer + reviewer
+	if mode == processor.ModeDeepPlan {
+		// codex is required for deep plan — check before Runner.New (which auto-disables)
+		codexCmd := cfg.CodexCommand
+		if codexCmd == "" {
+			codexCmd = "codex"
+		}
+		if _, lookErr := exec.LookPath(codexCmd); lookErr != nil {
+			return fmt.Errorf("--deep-plan requires codex (%s not found in PATH)", codexCmd)
+		}
+		return runDeepPlanMode(ctx, o, executePlanRequest{
+			Mode:          processor.ModeDeepPlan,
+			GitSvc:        gitSvc,
+			Config:        cfg,
+			Colors:        colors,
+			DefaultBranch: defaultBranch,
+			BaseRef:       baseRef,
+			NotifySvc:     notifySvc,
+			WtCleanup:     wtCleanup,
+		})
 	}
 
 	return selectAndExecutePlan(ctx, o, executePlanRequest{
@@ -701,7 +724,7 @@ func checkClaudeDep(cfg *config.Config) error {
 // isWatchOnlyMode returns true if running in watch-only mode.
 // watch-only mode runs the web dashboard without executing any plan.
 func isWatchOnlyMode(o opts, configWatchDirs []string) bool {
-	return o.Serve && o.PlanFile == "" && o.PlanDescription == "" && (len(o.Watch) > 0 || len(configWatchDirs) > 0)
+	return o.Serve && o.PlanFile == "" && o.PlanDescription == "" && o.DeepPlanDescription == "" && (len(o.Watch) > 0 || len(configWatchDirs) > 0)
 }
 
 // runWatchOnly starts the web dashboard in watch-only mode without plan execution.
@@ -721,6 +744,8 @@ func runWatchOnly(ctx context.Context, o opts, cfg *config.Config, colors *progr
 // determineMode returns the execution mode based on CLI flags.
 func determineMode(o opts) processor.Mode {
 	switch {
+	case o.DeepPlanDescription != "":
+		return processor.ModeDeepPlan
 	case o.PlanDescription != "":
 		return processor.ModePlan
 	case o.TasksOnly:
@@ -744,6 +769,12 @@ func modeRequiresBranch(mode processor.Mode) bool {
 func validateFlags(o opts) error {
 	if o.PlanDescription != "" && o.PlanFile != "" {
 		return errors.New("--plan flag conflicts with plan file argument; use one or the other")
+	}
+	if o.DeepPlanDescription != "" && o.PlanFile != "" {
+		return errors.New("--deep-plan flag conflicts with plan file argument; use one or the other")
+	}
+	if o.DeepPlanDescription != "" && o.PlanDescription != "" {
+		return errors.New("--deep-plan and --plan flags are mutually exclusive")
 	}
 	if o.Wait < 0 {
 		return fmt.Errorf("--wait must be non-negative, got %s", o.Wait)
@@ -795,6 +826,14 @@ func createRunner(req executePlanRequest, o opts, log processor.Logger, holder *
 func printStartupInfo(info startupInfo, colors *progress.Colors) {
 	if info.Mode == processor.ModePlan {
 		colors.Info().Printf("starting interactive plan creation\n")
+		colors.Info().Printf("request: %s\n", info.PlanDescription)
+		colors.Info().Printf("branch: %s (max %d iterations)\n", info.Branch, info.MaxIterations)
+		colors.Info().Printf("progress log: %s\n\n", info.ProgressPath)
+		return
+	}
+
+	if info.Mode == processor.ModeDeepPlan {
+		colors.Info().Printf("starting adversarial deep plan creation\n")
 		colors.Info().Printf("request: %s\n", info.PlanDescription)
 		colors.Info().Printf("branch: %s (max %d iterations)\n", info.Branch, info.MaxIterations)
 		colors.Info().Printf("progress log: %s\n\n", info.ProgressPath)
@@ -941,6 +980,69 @@ func runPlanMode(ctx context.Context, o opts, req executePlanRequest, selector *
 	})
 }
 
+// runDeepPlanMode executes adversarial deep plan creation mode.
+// creates input collector, progress logger, and runs the deep plan creation loop.
+func runDeepPlanMode(ctx context.Context, o opts, req executePlanRequest) error {
+	// ensure gitignore has progress and deep-plan state files
+	if err := ensureGitIgnored(req.GitSvc,
+		".ralphex/progress/", ".ralphex/progress/progress-test.txt",
+		".ralphex/deep-plan/", ".ralphex/deep-plan/test.json"); err != nil {
+		return fmt.Errorf("ensure gitignore: %w", err)
+	}
+
+	branch := getCurrentBranch(req.GitSvc)
+	holder := &status.PhaseHolder{}
+
+	baseLog, err := progress.NewLogger(progress.Config{
+		PlanDescription: o.DeepPlanDescription,
+		Mode:            string(processor.ModeDeepPlan),
+		Branch:          branch,
+		NoColor:         o.NoColor,
+	}, req.Colors, holder)
+	if err != nil {
+		return fmt.Errorf("create progress logger: %w", err)
+	}
+	defer func() {
+		if closeErr := baseLog.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close progress log: %v\n", closeErr)
+		}
+	}()
+
+	maxIter := resolveMaxIterations(o.MaxIterations, req.Config)
+
+	printStartupInfo(startupInfo{
+		PlanDescription: o.DeepPlanDescription,
+		Branch:          branch,
+		Mode:            processor.ModeDeepPlan,
+		MaxIterations:   maxIter,
+		ProgressPath:    baseLog.Path(),
+	}, req.Colors)
+
+	collector := input.NewTerminalCollector(o.NoColor)
+
+	r := processor.New(processor.Config{
+		PlanDescription:  o.DeepPlanDescription,
+		ProgressPath:     baseLog.Path(),
+		Mode:             processor.ModeDeepPlan,
+		MaxIterations:    maxIter,
+		Debug:            o.Debug,
+		NoColor:          o.NoColor,
+		IterationDelayMs: req.Config.IterationDelayMs,
+		CodexEnabled:     true, // always enabled for deep plan
+		DefaultBranch:    req.BaseRef,
+		AppConfig:        req.Config,
+	}, baseLog, holder)
+	r.SetInputCollector(collector)
+
+	if runErr := r.Run(ctx); runErr != nil {
+		return fmt.Errorf("deep plan creation: %w", runErr)
+	}
+
+	elapsed := baseLog.Elapsed()
+	req.Colors.Info().Printf("\ndeep plan creation completed in %s\n", elapsed)
+	return nil
+}
+
 // runReset runs the interactive config reset flow.
 func runReset(configDir string, stdin io.Reader, stdout io.Writer) error {
 	_, err := config.Reset(configDir, stdin, stdout)
@@ -999,7 +1101,7 @@ func toRelPath(p string) string {
 // this allows reset to work standalone (exit after reset) while also supporting
 // combined usage like "ralphex --reset docs/plans/feature.md".
 func isResetOnly(o opts) bool {
-	return o.PlanFile == "" && !o.Review && !o.ExternalOnly && !o.CodexOnly && !o.TasksOnly && !o.Serve && o.PlanDescription == "" && len(o.Watch) == 0 && o.DumpDefaults == ""
+	return o.PlanFile == "" && !o.Review && !o.ExternalOnly && !o.CodexOnly && !o.TasksOnly && !o.Serve && o.PlanDescription == "" && o.DeepPlanDescription == "" && len(o.Watch) == 0 && o.DumpDefaults == ""
 }
 
 // startInterruptWatcher prints immediate feedback when context is canceled.

@@ -42,6 +42,7 @@ ralphex solves both problems. Each task executes in a fresh Claude Code session 
 - **Zero setup** - works out of the box with sensible defaults, no configuration required
 - **Autonomous task execution** - executes plan tasks one at a time with automatic retry
 - **Interactive plan creation** - create plans through dialogue with Claude via `--plan` flag
+- **Adversarial deep planning** - two-LLM debate (Claude proposes, Codex reviews) per section via `--deep-plan` flag
 - **Multi-phase code review** - 5 agents → codex → 2 agents review pipeline
 - **Custom review agents** - configurable agents with `{{agent:name}}` template system and user defined prompts
 - **Automatic branch creation** - creates git branch from plan filename
@@ -52,7 +53,7 @@ ralphex solves both problems. Each task executes in a fresh Claude Code session 
 - **Docker support** - run in isolated container for safer autonomous execution
 - **Notifications** - optional alerts on completion/failure via Telegram, Email, Slack, Webhook, or custom script
 - **Worktree isolation** - run multiple plans in parallel via `--worktree` flag
-- **Multiple modes** - full execution, tasks-only, review-only, external-only, or plan creation
+- **Multiple modes** - full execution, tasks-only, review-only, external-only, plan creation, or deep plan
 
 ## Quick Start
 
@@ -242,6 +243,47 @@ Continue with plan implementation?
 ```
 
 After plan creation, you can choose to continue with immediate execution or exit to run ralphex later. Progress is logged to `.ralphex/progress/progress-plan-<name>.txt`.
+
+### Deep Plan Creation
+
+The `--deep-plan` flag creates plans through adversarial debate between two LLMs. Claude (proposer) writes each section, Codex (reviewer) critiques it, and they iterate until agreement. You arbitrate any persistent disagreements.
+
+```bash
+ralphex --deep-plan "add caching layer with Redis"
+```
+
+**Pipeline:**
+
+1. **Exploration** — Claude explores the codebase and asks clarifying questions
+2. **Section Approval** — you choose which sections to include (3 mandatory + 3 optional)
+3. **Section Loop** — for each section: Claude proposes → Codex critiques → revise → agree or escalate
+4. **Assembly** — Claude assembles all agreed sections into a complete plan
+5. **Lint** — Codex reviews the assembled plan for cross-section inconsistencies
+6. **Final Review** — accept, revise, or reject the plan
+
+**Sections:**
+
+| Section | Type | Description |
+|---------|------|-------------|
+| `architecture` | mandatory | Architecture & Approach (gets +1 iteration) |
+| `tasks` | mandatory | Implementation Tasks |
+| `testing` | mandatory | Testing Strategy |
+| `data_models` | optional | Data Models & Schemas |
+| `api_design` | optional | API Design |
+| `migration` | optional | Migration Strategy |
+
+**Conflict resolution:** When Claude and Codex persistently disagree on a section (after 2+ iterations), the conflict is escalated to you with both arguments. You can accept the proposer's version or request another iteration.
+
+**Resume support:** Progress is saved after each key step (section approval, conflict decisions, section agreements, lint patches). If interrupted, re-running the same command offers to resume from where it stopped. State files are stored in `.ralphex/deep-plan/` and cleaned up on successful completion.
+
+**Requirements:** Codex must be installed and available in PATH. The `--deep-plan` flag is mutually exclusive with `--plan`, `--review`, and other mode flags.
+
+**Customization:** Six prompt files control the pipeline behavior: `deep_plan_explore.txt`, `deep_plan_propose.txt`, `deep_plan_critique.txt`, `deep_plan_resolve.txt`, `deep_plan_assembly.txt`, `deep_plan_lint.txt`. Edit them in `~/.config/ralphex/prompts/` or `.ralphex/prompts/`.
+
+**Limitations (v1):**
+- Only Codex as reviewer (custom review tool support planned)
+- Fixed section set (custom sections planned)
+- No web dashboard integration
 
 ## Installation
 
@@ -502,6 +544,9 @@ ralphex --review --base-ref abc1234 --skip-finalize
 # interactive plan creation
 ralphex --plan "add user authentication"
 
+# adversarial deep plan (Claude proposes, Codex reviews each section)
+ralphex --deep-plan "add caching layer with Redis"
+
 # with custom max iterations
 ralphex --max-iterations=100 docs/plans/feature.md
 
@@ -537,6 +582,7 @@ ralphex --serve --port 3000 docs/plans/feature.md
 | `--wait` | Wait duration before retrying on rate limit (e.g., `1h`, `30m`) | disabled |
 | `--worktree` | Run in isolated git worktree (full and tasks-only modes only) | false |
 | `--plan` | Create plan interactively (provide description) | - |
+| `--deep-plan` | Create plan with adversarial review — Claude proposes, Codex critiques each section (requires codex) | - |
 | `-s, --serve` | Start web dashboard for real-time streaming | false |
 | `-p, --port` | Web dashboard port (used with `--serve`) | 8080 |
 | `-w, --watch` | Directories to watch for progress files (repeatable) | - |
