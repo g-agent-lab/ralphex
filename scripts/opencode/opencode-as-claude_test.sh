@@ -630,11 +630,16 @@ create_mock_opencode > /dev/null
 echo "test: opencode not found"
 
 set +e
-# use a minimal PATH containing only jq's and bash's directories (no opencode)
-jq_dir=$(dirname "$(command -v jq)")
-bash_dir=$(dirname "$(command -v bash)")
-PATH="$jq_dir:$bash_dir" bash "$WRAPPER" -p "test prompt" 2>"$TMPDIR_TEST/no_opencode_err"
+# create a restricted PATH with only required tools, excluding opencode.
+# jq and opencode may share the same directory, so symlink individual binaries.
+no_oc_bin="$TMPDIR_TEST/no_opencode_bin"
+mkdir -p "$no_oc_bin"
+for tool in jq bash mktemp mkfifo cat rm kill env; do
+    tool_path=$(command -v "$tool" 2>/dev/null) && ln -sf "$tool_path" "$no_oc_bin/$tool"
+done
+PATH="$no_oc_bin" bash "$WRAPPER" -p "test prompt" 2>"$TMPDIR_TEST/no_opencode_err"
 no_opencode_exit=$?
+rm -r "$no_oc_bin"
 set -e
 
 if [[ $no_opencode_exit -ne 0 ]]; then
