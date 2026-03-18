@@ -11,10 +11,11 @@ import (
 // processGroupCleanup manages process lifecycle for graceful shutdown on Windows.
 // Note: Windows doesn't support Unix process groups, so this only kills the direct process.
 type processGroupCleanup struct {
-	cmd  *exec.Cmd
-	done chan struct{}
-	once sync.Once
-	err  error
+	cmd      *exec.Cmd
+	done     chan struct{}
+	once     sync.Once // guards cmd.Wait() idempotency
+	killOnce sync.Once // guards killProcess() idempotency
+	err      error
 }
 
 // setupProcessGroup is a no-op on Windows since process groups work differently.
@@ -41,7 +42,7 @@ func newProcessGroupCleanup(cmd *exec.Cmd, cancelCh <-chan struct{}) *processGro
 func (pg *processGroupCleanup) watchForCancel(cancelCh <-chan struct{}) {
 	select {
 	case <-cancelCh:
-		pg.killProcess()
+		pg.killOnce.Do(pg.killProcess)
 	case <-pg.done:
 		// process completed normally, goroutine exits
 	}
@@ -62,6 +63,9 @@ func (pg *processGroupCleanup) killProcess() {
 // Wait waits for the command to complete and cleans up resources.
 // It is safe to call multiple times - subsequent calls return the cached result.
 // Callers must eventually call Wait to avoid leaking resources.
+// Note: unlike Unix, Windows Wait() does not attempt post-exit orphan cleanup because
+// cmd.Wait() only returns after the direct process exits, making a subsequent kill a no-op.
+// true orphan cleanup on Windows would require Job Objects (not implemented).
 func (pg *processGroupCleanup) Wait() error {
 	pg.once.Do(func() {
 		pg.err = pg.cmd.Wait()
