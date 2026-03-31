@@ -29,7 +29,7 @@ RUN apk add --no-cache \
     nodejs npm \
     python3 py3-pip \
     libgcc libstdc++ ripgrep \
-    fzf git openssh-keygen bash \
+    fzf git jq openssh-keygen bash \
     make gcc musl-dev docker-cli && \
     sed -i 's|/home/app:/bin/sh|/home/app:/bin/bash|' /etc/passwd
 
