@@ -686,8 +686,10 @@ Each `{{agent:name}}` expands to Task tool instructions that tell Claude Code to
 The entire system is designed for customization - both task execution and reviews:
 
 **Agent files** (`~/.config/ralphex/agents/`):
-- Edit existing files to modify agent behavior
-- Add new `.txt` files to create custom agents
+- On first run, ralphex installs 5 default agent files as commented-out templates. These serve as examples — while fully commented out, they are inactive and the embedded defaults are used instead. Uncomment and edit to customize
+- Per-file fallback: for each agent, ralphex checks local `.ralphex/agents/` → global `~/.config/ralphex/agents/` → embedded default. The 5 embedded agents are always the baseline — deleting an agent file from disk does not disable it, the embedded version is used as fallback
+- To disable a specific agent, remove its `{{agent:name}}` reference from the prompt files (`review_first.txt`, `review_second.txt`), not the agent file itself
+- Add new `.txt` files to create custom agents (reference them in prompts with `{{agent:name}}`)
 - Run `ralphex --init` to create local `.ralphex/` project config with commented-out defaults
 - Run `ralphex --reset` to interactively restore defaults, or delete all files manually
 - Run `ralphex --dump-defaults <dir>` to extract raw defaults for comparison
@@ -1001,6 +1003,10 @@ For full mode, start on master - ralphex creates a branch automatically from the
 **How do I restore default agents after customizing?**
 
 Run `ralphex --reset` to interactively reset global config. Select which components to reset (config, prompts, agents). Alternatively, delete all `.txt` files from `~/.config/ralphex/agents/` manually. To smart-merge updated defaults into customized files (preserving your changes), use the `/ralphex-update` Claude Code skill or `ralphex --dump-defaults <dir>` to extract defaults for manual comparison.
+
+**How do I disable a default agent?**
+
+Deleting an agent file from `~/.config/ralphex/agents/` does not disable it — the embedded default is used as fallback. To disable a specific agent, edit the prompt files (`review_first.txt`, `review_second.txt`) and remove the `{{agent:name}}` reference for that agent.
 
 **How does local .ralphex/ config interact with global config?**
 
