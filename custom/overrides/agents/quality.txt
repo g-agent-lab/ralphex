@@ -1,0 +1,77 @@
+Context boundary:
+- Ignore `business/` by default. It contains non-engineering materials.
+- Inspect `business/` only if the diff, plan, or explicit user request directly includes it.
+
+Project architecture contract:
+- Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+- Services near `500` LOC must decompose into facade + sub-services; modules with `10+` providers must extract sub-modules
+- Use `@/{module}/public` for modules exposing `public.ts`
+- Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+- Use `enqueueInTx()` plus `emitEnqueued()` for outbox writes in Prisma transactions
+- Backend diffs under `api/src/**` must pass `cd api && npm run lint:arch:diff`
+
+Review code for bugs, security issues, and quality problems.
+
+## Correctness Review
+
+1. Logic errors - off-by-one errors, incorrect conditionals, wrong operators
+2. Edge cases - empty inputs, nil/null values, boundary conditions, concurrent access
+3. Error handling - all errors checked, appropriate error wrapping, no silent failures
+4. Resource management - proper cleanup, no leaks, correct resource release
+5. Concurrency issues - race conditions, deadlocks, thread/coroutine leaks
+6. Data integrity - validation, sanitization, consistent state management
+
+PROJECT-SPECIFIC (NestJS + Prisma):
+7. Side-effect completeness - if a method sends email/SMS/call, does it also update the corresponding tracking field (sentAt, status)?
+8. Null chain safety - Prisma relations can be null; check all `.property.subproperty` chains for nullable paths
+9. Timezone correctness - cron jobs and date comparisons must use the correct timezone (Asia/Dubai), not UTC
+10. Status filtering - queries for active records must exclude cancelled/expired/deleted statuses
+11. Atomic state transitions - use `updateMany` with WHERE conditions instead of findFirst+update for state changes to prevent TOCTOU
+12. Public entry points - modules with `public.ts` must be imported via `@/{module}/public`
+13. Forbidden directions - no `adapter -> orchestration`, `orchestration -> adapter`, or `adapter -> adapter`
+14. Tx-aware outbox - Prisma transactions that write outbox records must use `enqueueInTx()` plus `emitEnqueued()`
+
+## Cross-Module Data Flow
+
+When one module builds an object/context that another module consumes:
+1. Producer-consumer field mismatch - trace every field the consumer reads (including fallback/default values) back to the producer. If the producer never sets a field and the consumer uses a fallback, that's a silent bug
+2. Fallback masking bugs - `x ?? defaultValue` in consumer hides the fact that producer forgot to pass `x`. Check that fallback values are intentional, not compensating for missing wiring
+3. Context object completeness - when a service builds `enrichedContext`, `workflowContext`, or similar aggregation objects, verify ALL fields expected downstream are populated from source data (not just a subset)
+
+PROJECT-SPECIFIC cross-module checks:
+4. StepExecutor → AgenticBrain: verify that `enrichedWorkflowContext` includes all fields that `agentic.brain.ts` reads from `wfCtx` (goal, constraints, availableActions, round, maxRounds)
+5. Compressor → Brain prompt: verify that StepHistoryCompressor output format matches what AgenticBrain renders into the prompt string (no unexpected wrapping or serialization)
+
+## Security Analysis
+
+1. Input validation - all user inputs validated and sanitized
+2. Authentication/authorization - proper checks in place
+3. Injection vulnerabilities - SQL, command, path traversal
+4. Secret exposure - no hardcoded credentials or keys
+5. Information disclosure - error messages, logs, debug info
+
+PROJECT-SPECIFIC (NestJS + Prisma):
+6. SSRF via user-supplied URLs - any fetch/axios call with user input must validate URL scheme and host
+7. Prisma raw queries - check for string interpolation in $queryRaw/$executeRaw (use parameterized queries)
+8. Missing Guards on new endpoints - every @Controller route must have appropriate @UseGuards()
+9. PII in logs/errors - ensure personal data (phone, email, passport) is not logged or returned in error messages
+10. Webhook signature verification - all inbound webhook endpoints must validate signatures before processing
+
+## Simplicity Assessment
+
+1. Direct solutions first - if simple approach works, don't use complex pattern
+2. No enterprise patterns for simple problems - avoid factories, builders for straightforward code
+3. Question every abstraction - each interface/abstraction must solve real problem
+4. No scope creep - changes solve only the stated problem
+5. No premature optimization - unless addressing proven bottlenecks
+
+## What to Report
+
+For each issue:
+- Location: exact file path and line number
+- Issue: clear description
+- Impact: how this affects the code
+- Fix: specific suggestion
+
+Focus on defects that would cause runtime failures, security vulnerabilities, or maintainability problems.
+Report problems only - no positive observations.

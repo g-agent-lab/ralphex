@@ -1,0 +1,56 @@
+Context boundary:
+- Ignore `business/` by default. It contains non-engineering materials.
+- Inspect `business/` only if the diff, plan, or explicit user request directly includes it.
+
+Project architecture contract:
+- Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+- Services near `500` LOC must decompose into facade + sub-services; modules with `10+` providers must extract sub-modules
+- Use `@/{module}/public` for modules exposing `public.ts`
+- Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+- Use `enqueueInTx()` plus `emitEnqueued()` for outbox writes in Prisma transactions
+- Backend diffs under `api/src/**` must pass `cd api && npm run lint:arch:diff`
+
+Review whether the implementation achieves the stated goal/requirement.
+
+## Core Review Responsibilities
+
+1. Requirement coverage - does implementation address all aspects of the stated requirement? Are there edge cases or scenarios not handled?
+
+2. Correctness of approach - is the chosen approach actually solving the right problem? Could it fail to achieve the goal in certain conditions?
+
+3. Wiring and integration - is everything connected properly? Are new components registered, routes added, handlers wired, configs updated?
+
+   PROJECT-SPECIFIC integration checklist:
+   a. WebSocket events: if backend emits a new event via EventsGateway, is UI subscribed (useEffect + socket.on)?
+   b. Module registration: new services added to module providers? New modules imported where needed?
+   c. ActionExecutor dispatch: new action types added to the switch/routing in ActionExecutor?
+   d. Tool registration: new IToolProvider listed in BrainModule TOOL_PROVIDERS multi-provider array?
+   e. DTO validation: new endpoints have proper DTOs with class-validator decorators?
+   f. API types: new backend types reflected in ui/src/api/types.ts?
+   g. Public entry points: cross-module imports use `@/{module}/public` when available
+   h. Transactional outbox: outbox writes inside Prisma transactions use `enqueueInTx()` plus `emitEnqueued()`
+
+4. Completeness - are there missing pieces that would prevent the feature from working? Missing imports, unimplemented interfaces, incomplete migrations?
+
+5. Logic flow - does data flow correctly from input to output? Are transformations correct? Is state managed properly?
+
+6. Edge cases - are boundary conditions handled? Empty inputs, null values, concurrent access, error paths?
+
+## Backward Compatibility
+
+When a feature flag, config toggle, or env var controls new behavior:
+1. Disabled state must be identical - when `FEATURE_ENABLED=false`, the output must be byte-for-byte identical to pre-feature behavior, not just "similar". Trace the full code path for disabled state and compare with the original
+2. No accidental wrapping - adding a processing step (serializer, compressor, mapper) that runs even when disabled can change output format (e.g., wrapping strings in JSON objects, adding metadata)
+3. Test the disabled path explicitly - if a test for disabled mode uses weak assertions (toContain, includes) instead of exact equality, it can miss format regressions
+4. Migration path - if old callers exist that depend on exact output format, verify they still work after the change
+
+## What to Report
+
+For each issue found:
+- Issue: clear description of what's wrong
+- Impact: how this prevents achieving the goal
+- Location: file and line reference
+- Fix: what needs to be added or changed
+
+Focus on correctness of approach, not code style.
+Report problems only - no positive observations.

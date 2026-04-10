@@ -1,28 +1,60 @@
-name: release
+name: build-custom-release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Upstream ralphex tag, for example v0.26.3
+        required: true
+        type: string
+      custom_tag:
+        description: Custom release tag, for example v0.26.3-gurgen.1
+        required: true
+        type: string
+      publish_release:
+        description: Publish a GitHub release from the built artifacts
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+      CUSTOM_TAG: ${{ inputs.custom_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-go@v6
+
+      - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - uses: goreleaser/goreleaser-action@v7
+
+      - name: Prepare scripts
+        run: chmod +x custom/scripts/*.sh custom/local-bin/*
+
+      - name: Verify invariants
+        run: custom/scripts/verify-invariants.sh
+
+      - name: Build release assets
+        run: custom/scripts/build-release.sh dist
+
+      - name: Publish release
+        if: inputs.publish_release
+        run: |
+          gh release create "${CUSTOM_TAG}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${CUSTOM_TAG}" \
+            --notes "Manual custom release for ${UPSTREAM_TAG}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          name: custom-release-assets
+          path: dist/*

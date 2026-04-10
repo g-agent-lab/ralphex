@@ -1,0 +1,116 @@
+name: sync-upstream
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Optional upstream tag override, for example v0.26.3
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/umputun/ralphex.git
+          git fetch upstream --tags
+
+      - name: Resolve target tags
+        id: tags
+        run: |
+          INPUT_TAG="${{ inputs.upstream_tag }}"
+          if [ -n "${INPUT_TAG}" ]; then
+            UPSTREAM_TAG="${INPUT_TAG}"
+          else
+            UPSTREAM_TAG="$(git ls-remote --tags --refs upstream 'v*' | awk '{print $2}' | sed 's#refs/tags/##' | sort -V | tail -n1)"
+          fi
+
+          if [ -z "${UPSTREAM_TAG}" ]; then
+            echo "failed to resolve upstream tag" >&2
+            exit 1
+          fi
+
+          CUSTOM_TAG="${UPSTREAM_TAG}-gurgen.1"
+          BRANCH_NAME="sync/${UPSTREAM_TAG}"
+
+          if gh release view "${CUSTOM_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          echo "upstream_tag=${UPSTREAM_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "custom_tag=${CUSTOM_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "branch_name=${BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Skip when already released
+        if: steps.tags.outputs.skip == 'true'
+        run: echo "custom release already exists"
+
+      - name: Build sync branch
+        if: steps.tags.outputs.skip != 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.tags.outputs.upstream_tag }}
+          CUSTOM_TAG: ${{ steps.tags.outputs.custom_tag }}
+          BRANCH_NAME: ${{ steps.tags.outputs.branch_name }}
+        run: |
+          CUSTOM_TMP="$(mktemp -d)"
+          trap 'rm -rf "${CUSTOM_TMP}"' EXIT
+
+          mkdir -p "${CUSTOM_TMP}/.github"
+          cp -R custom "${CUSTOM_TMP}/custom"
+          cp -R .github/workflows "${CUSTOM_TMP}/.github/workflows"
+          cp .gitignore "${CUSTOM_TMP}/gitignore"
+
+          git switch --force-create "${BRANCH_NAME}" "${UPSTREAM_TAG}"
+
+          rm -rf custom .github/workflows
+          mkdir -p .github
+          cp -R "${CUSTOM_TMP}/custom" custom
+          cp -R "${CUSTOM_TMP}/.github/workflows" .github/workflows
+          cp "${CUSTOM_TMP}/gitignore" .gitignore
+
+          printf '%s\n' "${UPSTREAM_TAG}" > custom/release/upstream-tag.txt
+          chmod +x custom/scripts/*.sh custom/local-bin/*
+
+          custom/scripts/apply-customizations.sh
+          custom/scripts/verify-invariants.sh
+          custom/scripts/build-release.sh dist
+
+          git add .gitignore .github/workflows custom cmd pkg
+          if git diff --cached --quiet; then
+            echo "no changes after applying customizations"
+            exit 0
+          fi
+
+          git commit -m "sync: ${CUSTOM_TAG}"
+          git push --force-with-lease origin "${BRANCH_NAME}"
+          git tag -f "${CUSTOM_TAG}"
+          git push --force origin "refs/tags/${CUSTOM_TAG}"
+
+          gh release create "${CUSTOM_TAG}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${CUSTOM_TAG}" \
+            --notes "Managed custom release for upstream ${UPSTREAM_TAG}"

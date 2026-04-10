@@ -1879,9 +1879,16 @@ func TestDisplayStats(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = baseLog.Close() }()
 
-		req := executePlanRequest{PlanFile: "docs/plans/feature.md", Colors: colors}
+		req := executePlanRequest{PlanFile: "docs/plans/active/feature.md", Colors: colors}
 		stats := git.DiffStats{Files: 5, Additions: 200, Deletions: 50}
+		var buf bytes.Buffer
+		origOutput := color.Output
+		color.Output = &buf
+		t.Cleanup(func() { color.Output = origOutput })
+
 		displayStats(req, baseLog, stats, "2m15s", "feature-branch")
+
+		assert.Contains(t, buf.String(), "plan: docs/plans/completed/feature.md")
 	})
 
 	t.Run("without_diff_stats", func(t *testing.T) {
@@ -1911,11 +1918,19 @@ func TestDisplayStats(t *testing.T) {
 		defer func() { _ = baseLog.Close() }()
 
 		req := executePlanRequest{
-			PlanFile:     "worktree/docs/plans/feature.md",
-			MainPlanFile: "docs/plans/feature.md",
+			PlanFile:     "worktree/docs/plans/active/feature.md",
+			MainPlanFile: "docs/plans/active/feature.md",
 			Colors:       colors,
 		}
+		var buf bytes.Buffer
+		origOutput := color.Output
+		color.Output = &buf
+		t.Cleanup(func() { color.Output = origOutput })
+
 		displayStats(req, baseLog, git.DiffStats{Files: 1, Additions: 10, Deletions: 5}, "10s", "feature-wt")
+
+		assert.Contains(t, buf.String(), "plan: docs/plans/completed/feature.md")
+		assert.NotContains(t, buf.String(), "docs/plans/active/completed")
 	})
 }
 

@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO="${RALPHEX_FORK_REPO:-g-agent-lab/ralphex}"
+BIN_DIR="${HOME}/.local/bin"
+STATE_DIR="${HOME}/.local/state/ralphex-updater"
+STATE_FILE="${STATE_DIR}/installed.json"
+MANAGED_BIN="${BIN_DIR}/ralphex"
+PREV_BIN="${BIN_DIR}/ralphex.prev"
+
+usage() {
+  cat <<'EOF'
+Usage: ralphex-install-update [--tag <tag>] [--dry-run] [--rollback]
+EOF
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+rollback() {
+  if [[ ! -f "${PREV_BIN}" ]]; then
+    echo "no previous binary to roll back to" >&2
+    exit 1
+  fi
+
+  mv "${PREV_BIN}" "${MANAGED_BIN}"
+  chmod 755 "${MANAGED_BIN}"
+  local restored_version=""
+  restored_version="$("${MANAGED_BIN}" --version 2>/dev/null | awk 'NF >= 2 { print $2 }')"
+  if [[ -n "${restored_version}" ]]; then
+    write_state "${restored_version}"
+  fi
+  echo "rolled back managed ralphex binary"
+}
+
+write_state() {
+  local installed_version="$1"
+  mkdir -p "${STATE_DIR}"
+  jq -n \
+    --arg installed_version "${installed_version}" \
+    --arg installed_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    '{
+      installed_version: $installed_version,
+      installed_at: $installed_at
+    }' > "${STATE_FILE}"
+}
+
+main() {
+  local requested_tag=""
+  local dry_run="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tag)
+        requested_tag="${2:-}"
+        shift 2
+        ;;
+      --dry-run)
+        dry_run="true"
+        shift
+        ;;
+      --rollback)
+        rollback
+        exit 0
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "unknown argument: $1" >&2
+        usage
+        exit 1
+        ;;
+    esac
+  done
+
+  require_cmd gh
+  require_cmd jq
+  require_cmd tar
+  require_cmd shasum
+
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "gh auth status is not valid" >&2
+    exit 1
+  fi
+
+  local release_json
+  if [[ -n "${requested_tag}" ]]; then
+    release_json="$(gh api "repos/${REPO}/releases/tags/${requested_tag}")"
+  else
+    release_json="$(gh api "repos/${REPO}/releases/latest")"
+  fi
+
+  local candidate_version
+  candidate_version="$(jq -r '.tag_name // empty' <<<"${release_json}")"
+  if [[ -z "${candidate_version}" ]]; then
+    echo "failed to resolve candidate release tag" >&2
+    exit 1
+  fi
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ralphex-install.XXXXXX")"
+  trap 'rm -rf "${tmp_dir}"' EXIT
+
+  gh release download "${candidate_version}" --repo "${REPO}" --pattern 'release-metadata.json' --dir "${tmp_dir}" >/dev/null
+
+  local metadata_file checksums_asset binary_asset local_tools_asset runtime_overrides_asset
+  metadata_file="${tmp_dir}/release-metadata.json"
+  checksums_asset="$(jq -r '.assets.checksums' "${metadata_file}")"
+  binary_asset="$(jq -r '.assets.binary' "${metadata_file}")"
+  local_tools_asset="$(jq -r '.assets.local_tools' "${metadata_file}")"
+  runtime_overrides_asset="$(jq -r '.assets.runtime_overrides' "${metadata_file}")"
+
+  gh release download "${candidate_version}" --repo "${REPO}" --pattern "${checksums_asset}" --pattern "${binary_asset}" --pattern "${local_tools_asset}" --pattern "${runtime_overrides_asset}" --dir "${tmp_dir}" >/dev/null
+
+  (
+    cd "${tmp_dir}"
+    shasum -a 256 -c "${checksums_asset}"
+  )
+
+  if [[ "${dry_run}" == "true" ]]; then
+    jq -n \
+      --arg installed_version "${candidate_version}" \
+      --arg summary "dry-run successful; assets verified" \
+      '{installed_version: $installed_version, summary: $summary}'
+    exit 0
+  fi
+
+  mkdir -p "${BIN_DIR}" "${STATE_DIR}" "${HOME}/.config/ralphex"
+
+  if [[ -f "${MANAGED_BIN}" ]]; then
+    cp "${MANAGED_BIN}" "${PREV_BIN}"
+  fi
+
+  local extract_dir
+  extract_dir="${tmp_dir}/extract"
+  mkdir -p "${extract_dir}/binary" "${extract_dir}/tools" "${extract_dir}/runtime"
+
+  tar -xzf "${tmp_dir}/${binary_asset}" -C "${extract_dir}/binary"
+  tar -xzf "${tmp_dir}/${local_tools_asset}" -C "${extract_dir}/tools"
+  tar -xzf "${tmp_dir}/${runtime_overrides_asset}" -C "${extract_dir}/runtime"
+
+  install -m 0755 "${extract_dir}/binary/ralphex" "${MANAGED_BIN}"
+
+  local tool
+  for tool in ralphex-check-update ralphex-install-update; do
+    install -m 0755 "${extract_dir}/tools/${tool}" "${BIN_DIR}/${tool}"
+  done
+
+  mkdir -p "${HOME}/.config/ralphex/prompts" "${HOME}/.config/ralphex/agents" "${HOME}/.config/ralphex/scripts"
+  if [[ -f "${extract_dir}/runtime/config" ]]; then
+    install -m 0644 "${extract_dir}/runtime/config" "${HOME}/.config/ralphex/config"
+  fi
+  if [[ -d "${extract_dir}/runtime/prompts" ]]; then
+    cp -R "${extract_dir}/runtime/prompts/." "${HOME}/.config/ralphex/prompts/"
+  fi
+  if [[ -d "${extract_dir}/runtime/agents" ]]; then
+    cp -R "${extract_dir}/runtime/agents/." "${HOME}/.config/ralphex/agents/"
+  fi
+  if [[ -f "${extract_dir}/runtime/scripts/codex-wrapper.sh" ]]; then
+    install -m 0755 "${extract_dir}/runtime/scripts/codex-wrapper.sh" "${HOME}/.config/ralphex/scripts/codex-wrapper.sh"
+  fi
+
+  write_state "${candidate_version}"
+  echo "installed managed ralphex ${candidate_version}"
+}
+
+main "$@"

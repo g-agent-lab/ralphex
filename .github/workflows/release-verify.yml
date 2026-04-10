@@ -1,0 +1,44 @@
+name: release-verify
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: contains(github.event.release.tag_name, '-gurgen.')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Download assets
+        run: |
+          mkdir -p dist
+          gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --dir dist
+
+      - name: Verify checksums
+        run: |
+          cd dist
+          CHECKSUMS_FILE="$(find . -maxdepth 1 -type f -name '*_checksums.txt' | head -n1)"
+          test -n "${CHECKSUMS_FILE}"
+          shasum -a 256 -c "${CHECKSUMS_FILE}"
+
+      - name: Verify metadata schema
+        run: |
+          METADATA_FILE="dist/release-metadata.json"
+          jq -e --arg tag "${RELEASE_TAG}" '.custom_tag == $tag and (.upstream_tag | type == "string") and (.fork_commit | type == "string")' "${METADATA_FILE}" >/dev/null
+
+      - name: Verify archives contain expected files
+        run: |
+          BINARY_ARCHIVE="$(find dist -maxdepth 1 -type f -name '*_darwin_arm64.tar.gz' | head -n1)"
+          LOCAL_TOOLS_ARCHIVE="$(find dist -maxdepth 1 -type f -name '*_local_tools.tar.gz' | head -n1)"
+          RUNTIME_ARCHIVE="$(find dist -maxdepth 1 -type f -name '*_runtime_overrides.tar.gz' | head -n1)"
+
+          tar -tzf "${BINARY_ARCHIVE}" | grep -qx 'ralphex'
+          tar -tzf "${LOCAL_TOOLS_ARCHIVE}" | grep -q 'ralphex-check-update'
+          tar -tzf "${LOCAL_TOOLS_ARCHIVE}" | grep -q 'ralphex-install-update'
+          tar -tzf "${RUNTIME_ARCHIVE}" | grep -q '^config$'

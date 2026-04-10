@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO="${RALPHEX_FORK_REPO:-g-agent-lab/ralphex}"
+STATE_DIR="${HOME}/.local/state/ralphex-updater"
+STATE_FILE="${STATE_DIR}/installed.json"
+MANAGED_BIN="${HOME}/.local/bin/ralphex"
+
+json_error() {
+  jq -n \
+    --arg status "error" \
+    --arg summary "$1" \
+    '{
+      status: $status,
+      installed_version: "",
+      candidate_version: "",
+      release_url: "",
+      summary: $summary
+    }'
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    json_error "missing required command: $1"
+    exit 0
+  }
+}
+
+read_installed_version() {
+  if [[ -f "${STATE_FILE}" ]]; then
+    jq -r '.installed_version // empty' "${STATE_FILE}"
+    return
+  fi
+
+  local version_output=""
+  if [[ -x "${MANAGED_BIN}" ]]; then
+    version_output="$("${MANAGED_BIN}" --version 2>/dev/null || true)"
+  elif command -v ralphex >/dev/null 2>&1; then
+    version_output="$(command ralphex --version 2>/dev/null || true)"
+  fi
+
+  awk 'NF >= 2 { print $2 }' <<<"${version_output}"
+}
+
+main() {
+  require_cmd gh
+  require_cmd jq
+
+  if ! gh auth status >/dev/null 2>&1; then
+    json_error "gh auth status is not valid"
+    exit 0
+  fi
+
+  local installed_version
+  installed_version="$(read_installed_version)"
+
+  local release_json
+  if ! release_json="$(gh api "repos/${REPO}/releases/latest" 2>/dev/null)"; then
+    json_error "failed to fetch latest release from ${REPO}"
+    exit 0
+  fi
+
+  local candidate_version release_url
+  candidate_version="$(jq -r '.tag_name // empty' <<<"${release_json}")"
+  release_url="$(jq -r '.html_url // empty' <<<"${release_json}")"
+
+  if [[ -z "${candidate_version}" ]]; then
+    json_error "latest release payload is missing tag_name"
+    exit 0
+  fi
+
+  local tmp_dir metadata_file metadata_summary status
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ralphex-check.XXXXXX")"
+  trap 'rm -rf "${tmp_dir}"' EXIT
+
+  if ! gh release download "${candidate_version}" --repo "${REPO}" --pattern 'release-metadata.json' --dir "${tmp_dir}" >/dev/null 2>&1; then
+    json_error "failed to download release metadata for ${candidate_version}"
+    exit 0
+  fi
+
+  metadata_file="${tmp_dir}/release-metadata.json"
+  metadata_summary="$(jq -r '"upstream " + (.upstream_tag // "unknown") + ", commit " + (.fork_commit // "unknown")' "${metadata_file}")"
+
+  status="update_available"
+  if [[ -n "${installed_version}" && "${installed_version}" == "${candidate_version}" ]]; then
+    status="up_to_date"
+  fi
+
+  jq -n \
+    --arg status "${status}" \
+    --arg installed_version "${installed_version}" \
+    --arg candidate_version "${candidate_version}" \
+    --arg release_url "${release_url}" \
+    --arg summary "${metadata_summary}" \
+    '{
+      status: $status,
+      installed_version: $installed_version,
+      candidate_version: $candidate_version,
+      release_url: $release_url,
+      summary: $summary
+    }'
+}
+
+main "$@"

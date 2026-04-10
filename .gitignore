@@ -63,3 +63,5 @@ __pycache__/
 
 # ralphex progress logs
 .ralphex/worktrees/
+dist/
+.custom-work/

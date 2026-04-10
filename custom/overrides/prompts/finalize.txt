@@ -1,0 +1,76 @@
+# finalize prompt
+# this prompt runs once after successful reviews
+#
+# DEFAULT CONTEXT BOUNDARY:
+# - `business/` contains non-engineering materials such as strategy, positioning, go-to-market, marketing and sales.
+# - Do NOT inspect or include `business/` in finalize context by default.
+# - Touch files in `business/` only if the plan or branch diff explicitly includes them.
+# PROJECT ARCHITECTURE CONTRACT (Clever Agent):
+# - Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+# - Use `@/{module}/public` for modules exposing `public.ts`
+# - Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+# - Use `enqueueInTx()` plus `emitEnqueued()` for outbox writes in Prisma transactions
+# - Backend diffs under `api/src/**` must pass `cd api && npm run lint:arch:diff -- --base {{DEFAULT_BRANCH}}`
+# disabled by default (finalize_enabled = false)
+#
+# available variables:
+#   {{DEFAULT_BRANCH}} - default branch name (main, master, trunk, etc.)
+
+Post-completion finalize step.
+
+Rebase your commits onto the latest {{DEFAULT_BRANCH}}, verify everything works, then merge into {{DEFAULT_BRANCH}}.
+
+For this repo, docs/plan lifecycle normalization is REQUIRED before merge. Do not silently leave
+completed plans in docs/plans/active/, stale "В работе" links in ROADMAP, or missing docs updates.
+If you cannot normalize the lifecycle or `cd api && npm run lint:docs` fails, STOP and report the issue.
+
+Steps:
+
+1. Fetch latest changes: `git fetch origin`
+
+2. Rebase onto {{DEFAULT_BRANCH}}:
+   - Run: `git rebase origin/{{DEFAULT_BRANCH}}`
+   - If conflicts occur, resolve them and continue rebase
+   - If rebase fails completely, abort with `git rebase --abort` and report the issue
+
+3. Review commit history:
+   - Run: `git log origin/{{DEFAULT_BRANCH}}..HEAD --oneline`
+   - If there are many small fix commits, consider squashing them
+   - Keep meaningful commit boundaries (feature commits separate from fix commits)
+
+4. Optional: Interactive rebase to clean up history:
+   - Only if there are 5+ commits that could be logically combined
+   - Run: `git rebase -i origin/{{DEFAULT_BRANCH}}`
+   - Squash related fix commits into their parent feature commits
+   - Reword commit messages if needed for clarity
+
+5. Verify the branch is ready:
+   - Run tests using the project's test command (check CLAUDE.md or plan file for the correct command)
+   - Run linter if applicable
+   - If branch diff touches `api/src/**`, run `cd api && npm run lint:arch:diff -- --base {{DEFAULT_BRANCH}}`
+   - If tests fail, fix the issues and amend the last commit
+
+6. Normalize docs/plans lifecycle (project-specific, before merge):
+   - Inspect branch changes for plan files under `docs/plans/active/`, `docs/plans/completed/`, and `docs/plans/drafts/`
+   - If a changed active plan has no remaining actionable `[ ]` task checkboxes, move it to `docs/plans/completed/`
+   - Update `docs/plans/ROADMAP.md` so the `## В работе` section references only top-level `active/*.md` files
+   - If the moved plan references a draft and no other active plan still points to that draft, move that draft to `docs/plans/drafts/done/`
+   - Run `cd api && npm run lint:docs`
+   - If any of these steps fail, STOP and report the failure without merging
+
+7. Merge into {{DEFAULT_BRANCH}} (local fast-forward merge):
+   - Save current branch name: `FEATURE_BRANCH=$(git branch --show-current)`
+   - Switch to default branch: `git checkout {{DEFAULT_BRANCH}}`
+   - Fast-forward merge: `git merge --ff-only "$FEATURE_BRANCH"`
+   - If fast-forward fails (diverged), report the issue and stay on {{DEFAULT_BRANCH}}
+   - If merge succeeds, delete the feature branch: `git branch -d "$FEATURE_BRANCH"`
+
+8. Post-merge verification:
+   - Run: `cd api && npm test` — must pass on {{DEFAULT_BRANCH}}
+   - Run: `cd api && npm run build` — must pass
+   - Run: `cd api && npm run lint:docs` — must pass on {{DEFAULT_BRANCH}}
+   - If post-merge verification fails, report the issue immediately and leave the failure explicit
+
+Report what was done. If rebase or merge fails, explain why and leave the branch as-is.
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `code`, # headers). Plain text and - lists are fine.

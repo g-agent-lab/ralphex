@@ -1,0 +1,79 @@
+# task execution prompt
+# this prompt is used for each task iteration in phase 1
+#
+# available variables:
+#   {{PLAN_FILE}} - path to the plan file being executed
+#   {{PROGRESS_FILE}} - path to the progress log file
+#   {{GOAL}} - human-readable goal description
+#   {{DEFAULT_BRANCH}} - default branch name (main, master, trunk, etc.)
+
+DEFAULT CONTEXT BOUNDARY:
+- `business/` contains non-engineering materials such as strategy, positioning, go-to-market, marketing and sales.
+- Do NOT read, search, summarize, or include `business/` in the working context by default.
+- Open files from `business/` only if the user, plan, diff, or explicit task instructions directly reference them.
+
+PROJECT ARCHITECTURE CONTRACT (Clever Agent):
+- Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+- If a service near `500` LOC grows further, decompose it into facade + sub-services
+- If a module would reach `10+` providers, extract a sub-module
+- Use `@/{module}/public` for cross-module imports when a module exposes `public.ts`
+- Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+- Prisma outbox writes inside transactions must use `enqueueInTx()` plus `emitEnqueued()`
+
+Read the plan file at {{PLAN_FILE}}. Find the FIRST Task section (### Task N: or ### Iteration N:) that has uncompleted checkboxes ([ ]).
+
+If NO Task section has [ ] but ## Success criteria, ## Overview, or ## Context still has [ ]: either satisfy those items and mark them [x] if actionable, or output <<<RALPHEX:ALL_TASKS_DONE>>> if they are verification-only (manual testing, deployment, etc.) — do not loop indefinitely when remaining items are not actionable by you.
+
+If a Task section has [ ] checkboxes you cannot complete (manual testing, deployment verification, external checks): mark them [x] with a note like "[x] manual test (skipped - not automatable)" and proceed. Do not loop indefinitely on non-automatable items inside Task sections.
+
+NOTE: Progress is logged to {{PROGRESS_FILE}} - this file contains detailed execution steps and can be reviewed for debugging.
+
+CRITICAL CONSTRAINT: Complete ONE Task section per iteration.
+A Task section is a "### Task N:" or "### Iteration N:" header with all its checkboxes underneath.
+Complete ALL checkboxes in that section, then STOP.
+Do NOT continue to the next section - the external loop will call you again for it.
+
+STEP 0 - ANNOUNCE:
+Before starting work, output a brief overview (up to 200 words) explaining:
+- Which task number you picked and its title
+- What the task will accomplish
+- Key files or components involved
+This helps the user understand what's happening in the current iteration.
+
+STEP 1 - IMPLEMENT:
+- Read the plan's Overview and Context sections to understand the work
+- Implement ALL items in the current Task section (all [ ] checkboxes under it)
+- Write tests for the implementation
+
+STEP 2 - SELF-REVIEW (before running tests):
+For each file you modified, re-read your code and check:
+- Side effects: if a function sends email/SMS/webhook, does it also update the tracking timestamp/status field?
+- Null safety: can any chained property access crash? Add optional chaining or early returns for nullable fields
+- Event wiring: if backend emits a new WS/event, is there a listener on the other side (UI subscription, @OnEvent handler)?
+- Race conditions: can two concurrent calls corrupt state? Use atomic updates (updateMany with WHERE conditions) for critical paths
+- Timezone: are all date/cron operations in the correct timezone (not UTC by default)?
+- Domain filters: does the query filter by status/type to exclude cancelled/expired/irrelevant records?
+- Public entry points: if a cross-module import targets a module with `public.ts`, route it through `@/{module}/public`
+- Layering: do not introduce `adapter -> orchestration`, `orchestration -> adapter`, or `adapter -> adapter`
+- Tx-aware outbox: if a Prisma transaction writes outbox records, use `enqueueInTx()` in the transaction and `emitEnqueued()` after commit
+- Docs accuracy: if you added/removed models, controllers, or env vars, run `cd api && npm run lint:docs` and fix any failures
+
+Fix any issues found BEFORE running tests. This prevents bugs from reaching the review cycle.
+
+STEP 3 - VALIDATE:
+- Run the test and lint commands specified in the plan (e.g., "cargo test", "go test ./...", etc.)
+- If the current task changed `api/src/**`, run `cd api && npm run lint:arch:diff -- --base {{DEFAULT_BRANCH}}`
+- Fix any failures, repeat until all validation passes
+
+STEP 4 - COMPLETE (after validation passes):
+- Update progress: edit {{PLAN_FILE}} and change [ ] to [x] for each checkbox you implemented in the current Task section. If Task sections are complete but ## Success criteria, ## Overview, or ## Context has [ ] items that the implementation satisfies, mark them [x] in this same edit to avoid extra loop iterations. If any such items are NOT satisfied, do NOT mark them and do NOT output ALL_TASKS_DONE — continue to the next iteration to address them.
+- Commit all changes (code + updated plan) with message: feat: <brief task description>
+- Check if any [ ] checkboxes remain in Task sections (### Task N: or ### Iteration N:)
+- If NO more [ ] checkboxes in the entire plan, output exactly: <<<RALPHEX:ALL_TASKS_DONE>>>
+- If more Task sections have [ ] checkboxes, STOP HERE - do not continue
+
+If any phase fails after reasonable fix attempts, output exactly: <<<RALPHEX:TASK_FAILED>>>
+
+REMINDER: ONE section (Task/Iteration) per loop cycle. After commit, STOP and let the loop handle the next section.
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `code`, # headers). Plain text and - lists are fine. Do not echo phase names or step numbers - just do the work.

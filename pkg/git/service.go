@@ -430,19 +430,36 @@ func (s *Service) RemoveWorktree(path string) error {
 	return nil
 }
 
-// MovePlanToCompleted moves a plan file to the completed/ subdirectory and commits.
-// Creates the completed/ directory if it doesn't exist.
+// CompletedPlanPath resolves the canonical location for a completed plan.
+// Active plans under docs/plans/active/ move to the sibling docs/plans/completed/ directory.
+// Other plan locations fall back to a local completed/ subdirectory to preserve backwards compatibility.
+func CompletedPlanPath(planFile string) string {
+	cleanPath := filepath.Clean(planFile)
+	parentDir := filepath.Dir(cleanPath)
+	baseName := filepath.Base(cleanPath)
+
+	if filepath.Base(parentDir) == "completed" {
+		return cleanPath
+	}
+
+	grandParent := filepath.Dir(parentDir)
+	if filepath.Base(parentDir) == "active" && filepath.Base(grandParent) == "plans" {
+		return filepath.Join(grandParent, "completed", baseName)
+	}
+
+	return filepath.Join(parentDir, "completed", baseName)
+}
+
+// MovePlanToCompleted moves a plan file to the canonical completed plan location and commits.
+// Creates the destination directory if it doesn't exist.
 // Uses git mv if the file is tracked, falls back to os.Rename for untracked files.
 // If the source file doesn't exist but the destination does, logs a message and returns nil.
 func (s *Service) MovePlanToCompleted(planFile string) error {
-	// create completed directory
-	completedDir := filepath.Join(filepath.Dir(planFile), "completed")
+	destPath := CompletedPlanPath(planFile)
+	completedDir := filepath.Dir(destPath)
 	if err := os.MkdirAll(completedDir, 0o750); err != nil {
 		return fmt.Errorf("create completed dir: %w", err)
 	}
-
-	// destination path
-	destPath := filepath.Join(completedDir, filepath.Base(planFile))
 
 	// check if already moved (source missing, dest exists)
 	if _, err := os.Stat(planFile); os.IsNotExist(err) {

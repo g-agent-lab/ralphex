@@ -1,0 +1,109 @@
+# codex evaluation prompt
+# this prompt is used when claude evaluates codex review output
+# codex runs in phase 3, between first and second claude reviews
+#
+# available variables:
+#   {{PLAN_FILE}} - path to the plan file being executed
+#   {{PROGRESS_FILE}} - path to the progress log (task execution + previous reviews)
+#   {{GOAL}} - human-readable goal description
+#   {{DEFAULT_BRANCH}} - default branch name (main, master, trunk, etc.)
+#   {{CODEX_OUTPUT}} - output from codex code review
+
+DEFAULT CONTEXT BOUNDARY:
+- `business/` contains non-engineering materials such as strategy, positioning, go-to-market, marketing and sales.
+- Do NOT read, search, summarize, or include `business/` in evaluation context by default.
+- Open files from `business/` only if the user, plan, diff, or Codex finding explicitly references them.
+
+PROJECT ARCHITECTURE CONTRACT (Clever Agent):
+- Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+- Use `@/{module}/public` for modules exposing `public.ts`
+- Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+- Use `enqueueInTx()` plus `emitEnqueued()` for outbox writes in Prisma transactions
+- Backend diffs under `api/src/**` must pass `cd api && npm run lint:arch:diff -- --base {{DEFAULT_BRANCH}}`
+
+External code review evaluation.
+
+Progress log: {{PROGRESS_FILE}}
+
+PROJECT CONTEXT (to reduce false positives):
+This is a NestJS + Prisma + PostgreSQL backend with React 18 + Vite UI.
+Known intentional patterns — do NOT flag these as issues:
+- forwardRef(() => Module) for circular dependency resolution between NestJS modules (8+ pairs)
+- Scope.TRANSIENT on AgenticBrain and UniversalContextBuilder (per-request isolation)
+- Symbol-based injection tokens for vendor abstraction (IOcrProvider, IFormProvider, IDtcmProvider)
+- Single-case switch statements in ActionExecutor/executeByType (designed for future extension)
+- Pass-through service methods that add logging, error handling, or type safety
+- IToolProvider implementations with tool registration boilerplate (standard pattern)
+- SWC-based build (not tsc), jest.mock() factories must be self-contained (no outer refs)
+- Documentation accuracy is enforced by `npm run lint:docs` in CI. If code changes models, controllers, or env vars, corresponding docs must be updated. Reference: docs/DOCS_RULES.md
+
+DISMISSAL CARRY-FORWARD: Before analyzing findings, check the progress log for previously dismissed findings.
+If codex is re-raising a finding that was already dismissed with reasoning in a prior iteration, dismiss it again
+with a brief reference ("dismissed in iteration N, same reasoning applies") instead of re-analyzing from scratch.
+This prevents the same false positive from consuming multiple iteration cycles.
+
+ANTI-CYCLING RULES (prevents Codex from re-raising dismissed findings):
+- When dismissing a finding, keep your explanation to 3-4 sentences max. Verbose rebuttals (7+ sentences)
+  give Codex more surface area to re-argue the same point from a different angle.
+- If Codex re-raises a dismissed finding with new evidence (different code path, new scenario), treat it as a
+  new finding and evaluate on merit.
+- If Codex re-raises with the same evidence rephrased (same code locations, same scenario, different wording),
+  dismiss in one sentence: "Same finding as iteration N, already addressed."
+- If Codex acknowledges your reasoning ("Claude is right", "I agree") but still re-raises, it's a stalemate —
+  dismiss and move on. Do not engage further.
+
+SCOPE AWARENESS: Codex reviews may flag behavior changes that are INTENTIONAL improvements per the plan.
+Before marking a finding as valid, check {{PLAN_FILE}} — if the behavior change is documented as a goal
+(e.g., "tx-aware outbox", "atomic write"), it is not a regression. Dismiss with: "Intentional per plan Task N."
+
+Codex reviewed the code and found:
+
+---
+{{CODEX_OUTPUT}}
+---
+
+## Your Task
+
+Analyze each finding critically. For EACH issue:
+
+1. Read the code at the reported location and trace the flow - find callers, see what functions it calls, understand the full context
+2. Understand what the code does, why it was written this way, and how the reported issue actually affects behavior
+3. Check {{PLAN_FILE}} - was this an intentional design decision?
+4. Assess the actual impact - is this a real problem or a style preference?
+
+Then categorize:
+
+- **Valid issues**: Fix them (edit files, run tests/linter to verify)
+- **Invalid/irrelevant issues**: Explain why they don't apply (intentional design, already mitigated, misunderstood context) - your explanation will be passed to Codex for re-evaluation
+
+SCOPE RULE: Fix pre-existing issues ONLY in files modified by this branch (visible in `git diff`).
+Dismiss findings in files NOT touched by this branch, even if valid — track them separately.
+Do NOT reject issues just because they existed before this branch IF they are in files we modified.
+
+If the branch diff touches `api/src/**`, run `cd api && npm run lint:arch:diff -- --base {{DEFAULT_BRANCH}}`.
+Any failure from that guard is actionable, even if Codex did not report it explicitly.
+
+## After Evaluation
+
+**If there were actionable issues to fix:**
+- Fix them, run tests/linter to verify - ALL tests must pass, ALL linter issues resolved
+- Do NOT commit yet - more codex iterations may follow
+- STOP here and DO NOT output any signal - the external loop will run codex again to verify fixes
+- NEVER output CODEX_REVIEW_DONE after fixing issues
+
+**If you dismissed ALL findings as invalid** (codex reported issues but none are actionable):
+- Explain why each finding is invalid
+- Do NOT commit anything
+- Do NOT output any signal
+- STOP here — the loop will re-run the external tool with your explanations for context
+
+**If Codex reports NO actionable issues** (empty output, "no issues found", "NO ISSUES FOUND"):
+- Run `git diff` to review ALL uncommitted changes (accumulated fixes from multiple iterations)
+- Commit all fixes with message: "fix: address codex review findings"
+- Output exactly: <<<RALPHEX:CODEX_REVIEW_DONE>>>
+
+CRITICAL: The CODEX_REVIEW_DONE signal means "codex found nothing to fix". Only output it when codex itself reported no issues. If you fixed anything, do NOT output the signal.
+
+CRITICAL: Never run codex commands yourself. The external loop handles codex execution.
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `code`, # headers). Plain text and - lists are fine.

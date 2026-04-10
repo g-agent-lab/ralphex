@@ -432,9 +432,9 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		require.NoError(t, err)
 
 		// create and commit plan file
-		plansDir := filepath.Join(dir, "docs", "plans")
-		require.NoError(t, os.MkdirAll(plansDir, 0o750))
-		planFile := filepath.Join(plansDir, "feature.md")
+		activeDir := filepath.Join(dir, "docs", "plans", "active")
+		require.NoError(t, os.MkdirAll(activeDir, 0o750))
+		planFile := filepath.Join(activeDir, "feature.md")
 		require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0o600))
 		require.NoError(t, svc.repo.add(planFile))
 		require.NoError(t, svc.repo.commit("add plan"))
@@ -450,7 +450,7 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 
 		// completed file should exist
-		completedPath := filepath.Join(plansDir, "completed", "feature.md")
+		completedPath := filepath.Join(dir, "docs", "plans", "completed", "feature.md")
 		_, err = os.Stat(completedPath)
 		require.NoError(t, err)
 
@@ -465,9 +465,9 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		require.NoError(t, err)
 
 		// create untracked plan file
-		plansDir := filepath.Join(dir, "docs", "plans")
-		require.NoError(t, os.MkdirAll(plansDir, 0o750))
-		planFile := filepath.Join(plansDir, "untracked-feature.md")
+		activeDir := filepath.Join(dir, "docs", "plans", "active")
+		require.NoError(t, os.MkdirAll(activeDir, 0o750))
+		planFile := filepath.Join(activeDir, "untracked-feature.md")
 		require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0o600))
 
 		err = svc.MovePlanToCompleted(planFile)
@@ -478,7 +478,7 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 
 		// completed file should exist
-		completedPath := filepath.Join(plansDir, "completed", "untracked-feature.md")
+		completedPath := filepath.Join(dir, "docs", "plans", "completed", "untracked-feature.md")
 		_, err = os.Stat(completedPath)
 		require.NoError(t, err)
 	})
@@ -489,15 +489,15 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		require.NoError(t, err)
 
 		// create plan file
-		plansDir := filepath.Join(dir, "docs", "plans")
-		require.NoError(t, os.MkdirAll(plansDir, 0o750))
-		planFile := filepath.Join(plansDir, "feature.md")
+		activeDir := filepath.Join(dir, "docs", "plans", "active")
+		require.NoError(t, os.MkdirAll(activeDir, 0o750))
+		planFile := filepath.Join(activeDir, "feature.md")
 		require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0o600))
 		require.NoError(t, svc.repo.add(planFile))
 		require.NoError(t, svc.repo.commit("add plan"))
 
 		// verify completed dir doesn't exist
-		completedDir := filepath.Join(plansDir, "completed")
+		completedDir := filepath.Join(dir, "docs", "plans", "completed")
 		_, err = os.Stat(completedDir)
 		require.True(t, os.IsNotExist(err))
 
@@ -517,14 +517,13 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		require.NoError(t, err)
 
 		// create completed directory with plan file already there (simulating prior move)
-		plansDir := filepath.Join(dir, "docs", "plans")
-		completedDir := filepath.Join(plansDir, "completed")
+		completedDir := filepath.Join(dir, "docs", "plans", "completed")
 		require.NoError(t, os.MkdirAll(completedDir, 0o750))
 		completedPath := filepath.Join(completedDir, "already-moved.md")
 		require.NoError(t, os.WriteFile(completedPath, []byte("# Plan"), 0o600))
 
 		// source file does not exist
-		planFile := filepath.Join(plansDir, "already-moved.md")
+		planFile := filepath.Join(dir, "docs", "plans", "active", "already-moved.md")
 		_, err = os.Stat(planFile)
 		require.True(t, os.IsNotExist(err))
 
@@ -535,6 +534,19 @@ func TestService_MovePlanToCompleted(t *testing.T) {
 		// should have logged skip message
 		require.Len(t, log.logs, 1)
 		assert.Contains(t, log.logs[0], "already in completed")
+	})
+
+	t.Run("resolves canonical completed path for active plans", func(t *testing.T) {
+		planFile := filepath.Join("docs", "plans", "active", "feature.md")
+		assert.Equal(t,
+			filepath.Join("docs", "plans", "completed", "feature.md"),
+			CompletedPlanPath(planFile),
+		)
+	})
+
+	t.Run("keeps completed plans in place", func(t *testing.T) {
+		planFile := filepath.Join("docs", "plans", "completed", "feature.md")
+		assert.Equal(t, planFile, CompletedPlanPath(planFile))
 	})
 }
 
@@ -1449,9 +1461,9 @@ func TestService_CommitWithTrailer(t *testing.T) {
 		svc.SetCommitTrailer("Signed-off-by: test")
 
 		// create and commit a plan file first
-		plansDir := filepath.Join(dir, "docs", "plans")
-		require.NoError(t, os.MkdirAll(plansDir, 0o750))
-		planFile := filepath.Join(plansDir, "move-trailer.md")
+		activeDir := filepath.Join(dir, "docs", "plans", "active")
+		require.NoError(t, os.MkdirAll(activeDir, 0o750))
+		planFile := filepath.Join(activeDir, "move-trailer.md")
 		require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0o600))
 		require.NoError(t, svc.repo.add(planFile))
 		require.NoError(t, svc.repo.commit("add plan"))

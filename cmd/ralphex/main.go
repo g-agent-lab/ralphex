@@ -461,7 +461,7 @@ func displayStats(req executePlanRequest, baseLog *progress.Logger, stats git.Di
 		if req.MainPlanFile != "" {
 			planFile = req.MainPlanFile
 		}
-		planPath = filepath.Join(filepath.Dir(planFile), "completed", filepath.Base(planFile))
+		planPath = git.CompletedPlanPath(planFile)
 	}
 	displayMeta(req.Colors, 2, planPath, branch, baseLog.Path())
 }

@@ -1,0 +1,92 @@
+Context boundary:
+- Ignore `business/` by default. It contains non-engineering materials.
+- Inspect `business/` only if the diff, plan, or explicit user request directly includes it.
+
+Project architecture contract:
+- Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+- Services near `500` LOC must decompose into facade + sub-services; modules with `10+` providers must extract sub-modules
+- Use `@/{module}/public` for modules exposing `public.ts`
+- Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+- Use `enqueueInTx()` plus `emitEnqueued()` for outbox writes in Prisma transactions
+- Backend diffs under `api/src/**` must pass `cd api && npm run lint:arch:diff`
+
+Detect over-engineered and overcomplicated code - code that works but is more complex than necessary.
+
+PROJECT-SPECIFIC: Skip the following patterns in this NestJS+Prisma codebase — they are intentional:
+- forwardRef(() => Module) for circular dependency resolution between NestJS modules
+- IToolProvider implementations with tool boilerplate (standard pattern, 5+ providers)
+- Pass-through service methods that delegate to another service (add logging, error handling, or type safety)
+- Single-case switch statements in executeByType/executeXxxAction (designed for future extension)
+- Scope.TRANSIENT on AgenticBrain/UniversalContextBuilder (required for per-request isolation)
+- Symbol-based injection tokens for vendor abstraction (IOcrProvider, IFormProvider, IDtcmProvider)
+
+Focus only on NEW over-engineering introduced in this branch, not established patterns.
+
+## Excessive Abstraction Layers
+
+- Wrapper adds nothing - method just calls another method with same signature
+- Factory for single implementation - factory pattern when only one concrete type exists
+- Interface on producer side - interface defined where implemented, not where consumed
+- Layer cake anti-pattern - handler -> service -> repository when each just passes through
+- DTO/Mapper overkill - multiple types representing same data with conversion functions
+
+## Premature Generalization
+
+- Generic solution for specific problem - event bus for one event type
+- Config objects for 2-3 options - options pattern when direct parameters suffice
+- Plugin architecture for fixed functionality - extension points nothing extends
+- Overloaded struct - one type handling all variations with many optional fields
+
+## Unnecessary Indirection
+
+- Pass-through wrappers - methods that only delegate to dependencies
+- Excessive method chaining - builder pattern for simple constructions
+- Interface wrapping primitives - custom types for standard library types
+- Middleware stacking - multiple middlewares that could be one
+
+## Future-Proofing Excess
+
+- Unused extension points - hooks, callbacks, plugins with no callers
+- Versioned internal APIs - v1/v2 when only one version used
+- Feature flags for permanent decisions - flags always on/off
+
+## Unnecessary Fallbacks
+
+- Fallback that never triggers - default path conditions never met
+- Legacy mode kept just in case - old code path always disabled
+- Dual implementations - old + new logic when old has no callers
+- Silent fallbacks hiding problems - catching errors and falling back instead of failing fast
+
+## Premature Optimization
+
+- Caching rarely-accessed data - cache for data read once at startup
+- Custom data structures - complex structures when arrays/maps work
+- Worker pools for occasional tasks - pooling for operations/hour
+- Connection pooling overkill - complex pooling for single connection
+
+## Architectural Growth (service/module bloat)
+
+Check EVERY modified or created .service.ts and .module.ts file for size/complexity growth:
+
+- Service file exceeds ~500 LOC (skip blanks/comments) — propose facade + sub-services decomposition
+- Single function with cognitive complexity > 15 (deep nesting, many branches) — propose extraction
+- Module has 10+ providers — propose sub-module extraction with barrel export
+- 3+ methods in one service doing the same subdomain work — propose sub-service extraction
+- Constructor has 8+ injected dependencies — god service smell, propose splitting
+
+PROJECT-SPECIFIC decomposition pattern: thin facade re-exporting sub-service methods (see ReservationsService, ActionExecutorService, WorkflowEngineService as reference implementations).
+
+Do NOT flag:
+- Mapping/config files (DTO definitions, enum maps) for LOC - they have low cognitive complexity
+- Test files for any size/complexity metrics
+
+## What to Report
+
+For each finding:
+- Location: file and line reference
+- Pattern: which over-engineering pattern detected
+- Problem: why this adds unnecessary complexity
+- Simplification: what simpler code would look like
+- Effort: trivial/small/medium/large
+
+Report problems only - no positive observations.

@@ -1,0 +1,82 @@
+Context boundary:
+- Ignore `business/` by default. It contains non-engineering materials.
+- Inspect `business/` only if the diff, plan, or explicit user request directly includes it.
+
+Project architecture contract:
+- Respect `CC 15`, `file 600`, `function 80`, `depth 5`, `params 8`
+- Use `@/{module}/public` for modules exposing `public.ts`
+- Keep forbidden directions: `adapter -> orchestration`, `orchestration -> adapter`, `adapter -> adapter`
+- Use `enqueueInTx()` plus `emitEnqueued()` for outbox writes in Prisma transactions
+- Backend diffs under `api/src/**` must pass `cd api && npm run lint:arch:diff`
+
+Review code changes and identify missing documentation updates.
+
+IMPORTANT: Do NOT assume every plan includes a final documentation task.
+First inspect the actual plan file:
+- If the plan explicitly contains a final documentation task that covers repo docs updates, do NOT report missing updates for CONTEXT.md, SESSION.md, docs/changelog/, docs/modules/, or docs/registry/.
+- If code changes require repo doc updates and the plan is missing that documentation task, report this as a workflow finding/blocker before any content-specific doc suggestions.
+
+Only report: missing JSDoc/TSDoc, incorrect inline comments, missing README sections for new features.
+
+## README.md (Human Documentation)
+
+Check if changes require README updates:
+
+Must document:
+- New features or capabilities
+- New CLI flags or command-line options
+- New API endpoints or interfaces
+- New configuration options
+- Changed behavior that affects users
+- New dependencies or system requirements
+- Breaking changes
+
+Skip:
+- Internal refactoring with no user-visible changes
+- Bug fixes that restore documented behavior
+- Test additions
+- Code style changes
+
+## CLAUDE.md (AI Knowledge Base)
+
+Check if changes require CLAUDE.md updates:
+
+Must document:
+- New architectural patterns discovered/established
+- New conventions or coding standards
+- New build/test commands
+- New libraries or tools integrated
+- Project structure changes
+- Workflow changes
+- Non-obvious debugging techniques
+- Changes to the operational contract shared across `AGENTS.md`, `CLAUDE.md`, repo docs, and live runtime layers
+
+Skip:
+- Standard code additions following existing patterns
+- Simple bug fixes
+- Test additions using existing patterns
+
+## Plan Files
+
+If changes relate to an existing plan:
+- Mark completed items as done
+- Update plan status if needed
+- Note which plan items this change addresses
+
+## What to Report
+
+For each gap:
+- Missing: what needs to be documented
+- Section: where in the documentation it should go
+- Suggested content: draft text or outline
+
+## Factual Accuracy (lint:docs)
+
+Run `cd api && npm run lint:docs` and report any failures.
+If lint:docs fails, this is a BLOCKING issue — must be fixed before merge.
+
+Checks: model count vs data-model.md, controller coverage in api-endpoints.md,
+env vars in env-variables.md, plans/ structure, active plan draft links.
+Reference: docs/DOCS_RULES.md
+
+Report problems only - no positive observations.
