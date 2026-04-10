@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,13 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git %v failed: %s", args, string(out))
 	return string(out)
+}
+
+func writeExecutableScript(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o755))
+	return path
 }
 
 func TestNewExternalBackend(t *testing.T) {
@@ -926,6 +934,40 @@ func TestExternalBackend_RemoveWorktree(t *testing.T) {
 		err = eb.removeWorktree("/nonexistent/path")
 		require.Error(t, err)
 	})
+
+	t.Run("times out with blocker diagnostic", func(t *testing.T) {
+		dir := t.TempDir()
+		gitScript := writeExecutableScript(t, dir, "fake-git.sh", "#!/bin/sh\nsleep 1\n")
+
+		prevTimeout := worktreeRemoveTimeout
+		prevSummaryFunc := worktreeBlockerSummaryFunc
+		worktreeRemoveTimeout = 50 * time.Millisecond
+		worktreeBlockerSummaryFunc = func(string) string {
+			return "possible blockers: zsh(pid=11558, fd=cwd), code(pid=22000, fd=txt)"
+		}
+		t.Cleanup(func() {
+			worktreeRemoveTimeout = prevTimeout
+			worktreeBlockerSummaryFunc = prevSummaryFunc
+		})
+
+		eb := &externalBackend{path: dir, command: gitScript}
+		err := eb.removeWorktree(filepath.Join(dir, "wt"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timed out after 50ms")
+		assert.Contains(t, err.Error(), "possible blockers:")
+		assert.Contains(t, err.Error(), "zsh(pid=11558, fd=cwd)")
+		assert.Contains(t, err.Error(), "close processes with cwd or open files in the worktree and retry")
+	})
+}
+
+func TestSummarizeLsofBlockers(t *testing.T) {
+	output := `COMMAND   PID   USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+zsh     11558 gurgen  cwd    DIR   1,14      64 22446516 /tmp/wt
+zsh     11558 gurgen  cwd    DIR   1,14      64 22446516 /tmp/wt
+code    22000 gurgen  txt    REG   1,14     128 22446517 /tmp/wt/file.txt
+`
+
+	assert.Equal(t, "possible blockers: zsh(pid=11558, fd=cwd), code(pid=22000, fd=txt)", summarizeLsofBlockers(output))
 }
 
 func TestExternalBackend_PruneWorktrees(t *testing.T) {

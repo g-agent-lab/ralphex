@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // externalBackend implements the backend interface by shelling out to the git CLI.
@@ -18,6 +19,13 @@ type externalBackend struct {
 	path    string // absolute path to repository root
 	command string // vcs command to use (default: "git")
 }
+
+var (
+	worktreeRemoveTimeout       = 5 * time.Second
+	worktreeBlockerProbeTimeout = 2 * time.Second
+	worktreeBlockerCommand      = "lsof"
+	worktreeBlockerSummaryFunc  = diagnoseWorktreeBlockers
+)
 
 // newExternalBackend creates an externalBackend that shells out to the given vcs command.
 // validates the path is inside a repository using rev-parse.
@@ -521,11 +529,83 @@ func (e *externalBackend) addWorktree(path, branch string, createBranch bool) er
 
 // removeWorktree removes a git worktree at the given path.
 func (e *externalBackend) removeWorktree(path string) error {
-	_, err := e.run("worktree", "remove", "--force", path)
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, e.command, "worktree", "remove", "--force", path)
+	cmd.Dir = e.path
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		msg := fmt.Sprintf("%s worktree remove timed out after %s for %q; a shell, editor, or other process may still be using the worktree", e.command, worktreeRemoveTimeout, path)
+		if blockers := worktreeBlockerSummaryFunc(path); blockers != "" {
+			msg += "; " + blockers
+		}
+		msg += "; close processes with cwd or open files in the worktree and retry"
+		return errors.New(msg)
+	}
 	if err != nil {
-		return fmt.Errorf("remove worktree: %w", err)
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("remove worktree: %s worktree: %s", e.command, msg)
+		}
+		return fmt.Errorf("remove worktree: %s worktree: %w", e.command, err)
 	}
 	return nil
+}
+
+func diagnoseWorktreeBlockers(path string) string {
+	lsofPath, err := exec.LookPath(worktreeBlockerCommand)
+	if err != nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeBlockerProbeTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, lsofPath, "+D", path)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return ""
+	}
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+
+	return summarizeLsofBlockers(string(out))
+}
+
+func summarizeLsofBlockers(output string) string {
+	var blockers []string
+	seen := make(map[string]struct{})
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		if line == "" || strings.HasPrefix(line, "COMMAND ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		entry := fmt.Sprintf("%s(pid=%s, fd=%s)", fields[0], fields[1], fields[3])
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		blockers = append(blockers, entry)
+		if len(blockers) == 5 {
+			break
+		}
+	}
+
+	switch len(blockers) {
+	case 0:
+		return ""
+	case 1:
+		return "possible blocker: " + blockers[0]
+	default:
+		return "possible blockers: " + strings.Join(blockers, ", ")
+	}
 }
 
 // pruneWorktrees prunes stale worktree entries.

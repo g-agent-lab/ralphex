@@ -1,0 +1,181 @@
+diff --git a/pkg/git/external.go b/pkg/git/external.go
+index 242129c..1a88165 100644
+--- a/pkg/git/external.go
++++ b/pkg/git/external.go
+@@ -11,6 +11,7 @@ import (
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
++	"time"
+ )
+ 
+ // externalBackend implements the backend interface by shelling out to the git CLI.
+@@ -19,6 +20,13 @@ type externalBackend struct {
+ 	command string // vcs command to use (default: "git")
+ }
+ 
++var (
++	worktreeRemoveTimeout       = 5 * time.Second
++	worktreeBlockerProbeTimeout = 2 * time.Second
++	worktreeBlockerCommand      = "lsof"
++	worktreeBlockerSummaryFunc  = diagnoseWorktreeBlockers
++)
++
+ // newExternalBackend creates an externalBackend that shells out to the given vcs command.
+ // validates the path is inside a repository using rev-parse.
+ func newExternalBackend(path, command string) (*externalBackend, error) {
+@@ -521,13 +529,85 @@ func (e *externalBackend) addWorktree(path, branch string, createBranch bool) er
+ 
+ // removeWorktree removes a git worktree at the given path.
+ func (e *externalBackend) removeWorktree(path string) error {
+-	_, err := e.run("worktree", "remove", "--force", path)
++	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveTimeout)
++	defer cancel()
++
++	cmd := exec.CommandContext(ctx, e.command, "worktree", "remove", "--force", path)
++	cmd.Dir = e.path
++	out, err := cmd.CombinedOutput()
++	if ctx.Err() == context.DeadlineExceeded {
++		msg := fmt.Sprintf("%s worktree remove timed out after %s for %q; a shell, editor, or other process may still be using the worktree", e.command, worktreeRemoveTimeout, path)
++		if blockers := worktreeBlockerSummaryFunc(path); blockers != "" {
++			msg += "; " + blockers
++		}
++		msg += "; close processes with cwd or open files in the worktree and retry"
++		return errors.New(msg)
++	}
+ 	if err != nil {
+-		return fmt.Errorf("remove worktree: %w", err)
++		msg := strings.TrimSpace(string(out))
++		if msg != "" {
++			return fmt.Errorf("remove worktree: %s worktree: %s", e.command, msg)
++		}
++		return fmt.Errorf("remove worktree: %s worktree: %w", e.command, err)
+ 	}
+ 	return nil
+ }
+ 
++func diagnoseWorktreeBlockers(path string) string {
++	lsofPath, err := exec.LookPath(worktreeBlockerCommand)
++	if err != nil {
++		return ""
++	}
++
++	ctx, cancel := context.WithTimeout(context.Background(), worktreeBlockerProbeTimeout)
++	defer cancel()
++
++	cmd := exec.CommandContext(ctx, lsofPath, "+D", path)
++	out, err := cmd.CombinedOutput()
++	if ctx.Err() == context.DeadlineExceeded {
++		return ""
++	}
++	if err != nil && len(out) == 0 {
++		return ""
++	}
++
++	return summarizeLsofBlockers(string(out))
++}
++
++func summarizeLsofBlockers(output string) string {
++	var blockers []string
++	seen := make(map[string]struct{})
++
++	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
++		if line == "" || strings.HasPrefix(line, "COMMAND ") {
++			continue
++		}
++		fields := strings.Fields(line)
++		if len(fields) < 4 {
++			continue
++		}
++
++		entry := fmt.Sprintf("%s(pid=%s, fd=%s)", fields[0], fields[1], fields[3])
++		if _, ok := seen[entry]; ok {
++			continue
++		}
++		seen[entry] = struct{}{}
++		blockers = append(blockers, entry)
++		if len(blockers) == 5 {
++			break
++		}
++	}
++
++	switch len(blockers) {
++	case 0:
++		return ""
++	case 1:
++		return "possible blocker: " + blockers[0]
++	default:
++		return "possible blockers: " + strings.Join(blockers, ", ")
++	}
++}
++
+ // pruneWorktrees prunes stale worktree entries.
+ func (e *externalBackend) pruneWorktrees() error {
+ 	_, err := e.run("worktree", "prune")
+diff --git a/pkg/git/external_test.go b/pkg/git/external_test.go
+index 8cdc2d7..d1c13e1 100644
+--- a/pkg/git/external_test.go
++++ b/pkg/git/external_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"os/exec"
+ 	"path/filepath"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+@@ -41,6 +42,13 @@ func runGit(t *testing.T, dir string, args ...string) string {
+ 	return string(out)
+ }
+ 
++func writeExecutableScript(t *testing.T, dir, name, body string) string {
++	t.Helper()
++	path := filepath.Join(dir, name)
++	require.NoError(t, os.WriteFile(path, []byte(body), 0o755))
++	return path
++}
++
+ func TestNewExternalBackend(t *testing.T) {
+ 	t.Run("opens valid repo", func(t *testing.T) {
+ 		dir := setupExternalTestRepo(t)
+@@ -926,6 +934,40 @@ func TestExternalBackend_RemoveWorktree(t *testing.T) {
+ 		err = eb.removeWorktree("/nonexistent/path")
+ 		require.Error(t, err)
+ 	})
++
++	t.Run("times out with blocker diagnostic", func(t *testing.T) {
++		dir := t.TempDir()
++		gitScript := writeExecutableScript(t, dir, "fake-git.sh", "#!/bin/sh\nsleep 1\n")
++
++		prevTimeout := worktreeRemoveTimeout
++		prevSummaryFunc := worktreeBlockerSummaryFunc
++		worktreeRemoveTimeout = 50 * time.Millisecond
++		worktreeBlockerSummaryFunc = func(string) string {
++			return "possible blockers: zsh(pid=11558, fd=cwd), code(pid=22000, fd=txt)"
++		}
++		t.Cleanup(func() {
++			worktreeRemoveTimeout = prevTimeout
++			worktreeBlockerSummaryFunc = prevSummaryFunc
++		})
++
++		eb := &externalBackend{path: dir, command: gitScript}
++		err := eb.removeWorktree(filepath.Join(dir, "wt"))
++		require.Error(t, err)
++		assert.Contains(t, err.Error(), "timed out after 50ms")
++		assert.Contains(t, err.Error(), "possible blockers:")
++		assert.Contains(t, err.Error(), "zsh(pid=11558, fd=cwd)")
++		assert.Contains(t, err.Error(), "close processes with cwd or open files in the worktree and retry")
++	})
++}
++
++func TestSummarizeLsofBlockers(t *testing.T) {
++	output := `COMMAND   PID   USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
++zsh     11558 gurgen  cwd    DIR   1,14      64 22446516 /tmp/wt
++zsh     11558 gurgen  cwd    DIR   1,14      64 22446516 /tmp/wt
++code    22000 gurgen  txt    REG   1,14     128 22446517 /tmp/wt/file.txt
++`
++
++	assert.Equal(t, "possible blockers: zsh(pid=11558, fd=cwd), code(pid=22000, fd=txt)", summarizeLsofBlockers(output))
+ }
+ 
+ func TestExternalBackend_PruneWorktrees(t *testing.T) {
