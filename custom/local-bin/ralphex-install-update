@@ -85,7 +85,7 @@ main() {
   require_cmd tar
   require_cmd shasum
 
-  if ! gh auth status >/dev/null 2>&1; then
+  if ! gh auth status --active --hostname github.com >/dev/null 2>&1; then
     echo "gh auth status is not valid" >&2
     exit 1
   fi

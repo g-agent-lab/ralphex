@@ -47,7 +47,7 @@ main() {
   require_cmd gh
   require_cmd jq
 
-  if ! gh auth status >/dev/null 2>&1; then
+  if ! gh auth status --active --hostname github.com >/dev/null 2>&1; then
     json_error "gh auth status is not valid"
     exit 0
   fi
