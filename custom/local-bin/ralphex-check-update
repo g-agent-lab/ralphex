@@ -6,6 +6,15 @@ REPO="${RALPHEX_FORK_REPO:-g-agent-lab/ralphex}"
 STATE_DIR="${HOME}/.local/state/ralphex-updater"
 STATE_FILE="${STATE_DIR}/installed.json"
 MANAGED_BIN="${HOME}/.local/bin/ralphex"
+TMP_DIR=""
+
+cleanup() {
+  if [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]]; then
+    rm -rf "${TMP_DIR}"
+  fi
+}
+
+trap cleanup EXIT
 
 json_error() {
   jq -n \
@@ -70,16 +79,15 @@ main() {
     exit 0
   fi
 
-  local tmp_dir metadata_file metadata_summary status
-  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ralphex-check.XXXXXX")"
-  trap 'rm -rf "${tmp_dir}"' EXIT
+  local metadata_file metadata_summary status
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ralphex-check.XXXXXX")"
 
-  if ! gh release download "${candidate_version}" --repo "${REPO}" --pattern 'release-metadata.json' --dir "${tmp_dir}" >/dev/null 2>&1; then
+  if ! gh release download "${candidate_version}" --repo "${REPO}" --pattern 'release-metadata.json' --dir "${TMP_DIR}" >/dev/null 2>&1; then
     json_error "failed to download release metadata for ${candidate_version}"
     exit 0
   fi
 
-  metadata_file="${tmp_dir}/release-metadata.json"
+  metadata_file="${TMP_DIR}/release-metadata.json"
   metadata_summary="$(jq -r '"upstream " + (.upstream_tag // "unknown") + ", commit " + (.fork_commit // "unknown")' "${metadata_file}")"
 
   status="update_available"
