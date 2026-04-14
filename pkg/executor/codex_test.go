@@ -149,10 +149,50 @@ func TestCodexExecutor_Run_StartError(t *testing.T) {
 	assert.Contains(t, result.Error.Error(), "command not found")
 }
 
-func TestCodexExecutor_Run_WaitError(t *testing.T) {
+func TestCodexExecutor_Run_WaitErrorWithOutput(t *testing.T) {
+	// codex exits non-zero but produced output — error should be cleared (output is usable).
+	// codex CLI sets exit code 1 on transient API errors even when the model generated
+	// a complete response; the findings in stdout are still valid.
+	var warnings []string
 	mock := &mockCodexRunner{
 		runFunc: func(_ context.Context, _ string, _ ...string) (CodexStreams, func() error, error) {
-			return mockStreams("", "partial output"), mockWaitError(errors.New("exit 1")), nil
+			return mockStreams("", "1. High: missing validation\n2. Medium: unused import"),
+				mockWaitError(errors.New("exit 1")), nil
+		},
+	}
+	e := &CodexExecutor{runner: mock, OutputHandler: func(text string) { warnings = append(warnings, text) }}
+
+	result := e.Run(context.Background(), "analyze code")
+
+	require.NoError(t, result.Error, "non-zero exit with output should not be treated as error")
+	assert.Contains(t, result.Output, "missing validation")
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "warning: codex exited with non-zero status but produced output")
+}
+
+func TestCodexExecutor_Run_WaitErrorWithOutputAndPattern(t *testing.T) {
+	// codex exits non-zero with output that matches an error pattern — pattern takes priority
+	mock := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (CodexStreams, func() error, error) {
+			return mockStreams("", "Error: Rate limit exceeded"),
+				mockWaitError(errors.New("exit 1")), nil
+		},
+	}
+	e := &CodexExecutor{runner: mock, ErrorPatterns: []string{"rate limit"}}
+
+	result := e.Run(context.Background(), "analyze code")
+
+	require.Error(t, result.Error, "pattern match should take priority over output-presence downgrade")
+	var patternErr *PatternMatchError
+	require.ErrorAs(t, result.Error, &patternErr)
+	assert.Equal(t, "rate limit", patternErr.Pattern)
+}
+
+func TestCodexExecutor_Run_WaitErrorNoOutput(t *testing.T) {
+	// codex exits non-zero with no output — genuine failure
+	mock := &mockCodexRunner{
+		runFunc: func(_ context.Context, _ string, _ ...string) (CodexStreams, func() error, error) {
+			return mockStreams("", ""), mockWaitError(errors.New("exit 1")), nil
 		},
 	}
 	e := &CodexExecutor{runner: mock}
@@ -161,7 +201,6 @@ func TestCodexExecutor_Run_WaitError(t *testing.T) {
 
 	require.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "codex exited with error")
-	assert.Equal(t, "partial output", result.Output)
 }
 
 func TestCodexExecutor_Run_WaitErrorWithStderr(t *testing.T) {
@@ -769,14 +808,14 @@ func TestCodexExecutor_Run_ErrorPattern(t *testing.T) {
 		wantOutput  string
 	}{
 		{
-			name: "no patterns configured, exit error only", stdout: "Rate limit exceeded",
+			name: "no patterns configured, exit error downgraded", stdout: "Rate limit exceeded",
 			patterns: nil, waitErr: exitErr, wantOutput: "Rate limit exceeded",
-			wantError: true,
+			wantError: false, // non-zero exit + output + no matching pattern → downgraded to warning
 		},
 		{
-			name: "pattern not matched, exit error only", stdout: "Analysis complete: no issues found",
+			name: "pattern not matched, exit error downgraded", stdout: "Analysis complete: no issues found",
 			patterns: []string{"rate limit", "quota exceeded"}, waitErr: exitErr,
-			wantOutput: "Analysis complete: no issues found", wantError: true,
+			wantOutput: "Analysis complete: no issues found", wantError: false, // downgraded
 		},
 		{
 			name: "pattern matched on non-zero exit", stdout: "Error: Rate limit exceeded, please try again later",
@@ -893,9 +932,9 @@ func TestCodexExecutor_Run_LimitPattern(t *testing.T) {
 			wantError: true, wantPattern: "quota exceeded",
 		},
 		{
-			name: "no pattern match, exit error only", stdout: "Analysis complete",
+			name: "no pattern match, exit error downgraded", stdout: "Analysis complete",
 			limitPat: []string{"rate limit"}, errorPat: []string{"quota exceeded"}, waitErr: exitErr,
-			wantError: true, // error from exit code, not pattern
+			wantError: false, // non-zero exit + output + no matching pattern → downgraded to warning
 		},
 		{
 			name: "patterns ignored on clean exit", stdout: "Rate limit handling code reviewed",

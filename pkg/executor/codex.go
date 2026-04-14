@@ -164,6 +164,7 @@ func (e *CodexExecutor) Run(ctx context.Context, prompt string) Result {
 
 	// determine final error (prefer stderr/stdout errors over wait error)
 	var finalErr error
+	var isExitError bool // true when finalErr comes from non-zero exit code (not pipe errors)
 	switch {
 	case stderrRes.err != nil && !errors.Is(stderrRes.err, context.Canceled):
 		finalErr = stderrRes.err
@@ -173,6 +174,7 @@ func (e *CodexExecutor) Run(ctx context.Context, prompt string) Result {
 		if ctx.Err() != nil {
 			finalErr = fmt.Errorf("context error: %w", ctx.Err())
 		} else {
+			isExitError = true
 			// include stderr tail for error context when codex exits with non-zero status
 			if len(stderrRes.lastLines) > 0 {
 				finalErr = fmt.Errorf("codex exited with error: %w\nstderr: %s",
@@ -208,6 +210,19 @@ func (e *CodexExecutor) Run(ctx context.Context, prompt string) Result {
 				Error:  &PatternMatchError{Pattern: pattern, HelpCmd: "codex /status"},
 			}
 		}
+	}
+
+	// codex CLI sets exit code 1 on transient API errors (ServerNotification::Error,
+	// TurnCompleted with Failed/Interrupted status) even when the model already generated
+	// a complete response. When codex exits non-zero but produced substantive stdout output
+	// and no error/limit patterns matched, the output contains usable review findings.
+	// Downgrade the exit error to a warning so the caller processes the output normally
+	// instead of aborting the review loop. Only applies to exit code errors, not pipe failures.
+	if isExitError && finalErr != nil && strings.TrimSpace(stdoutContent) != "" {
+		if e.OutputHandler != nil {
+			e.OutputHandler(fmt.Sprintf("warning: codex exited with non-zero status but produced output, continuing\n"))
+		}
+		finalErr = nil
 	}
 
 	// return stdout content as the result (the actual answer from codex)
